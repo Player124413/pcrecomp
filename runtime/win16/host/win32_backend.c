@@ -1824,9 +1824,12 @@ static HWND insert_after(uint16_t g) {
    gives a TOP-LEVEL window is in that space, not the host desktop's. Passing it
    through put Catz's frame at its saved "Playpen Window Location" on the
    host's primary monitor -- off the screen it was started on, and onto the
-   person's own. Top-level windows keep z-order and show/hide; only children,
-   whose coordinates are their parent's, move and size. */
+   person's own. So a top-level window never moves. It may still be SIZED --
+   Dogz sizes its playpen after creating it -- except the application frame
+   and the screen window, whose sizes the runtime sets to hold the 640x480
+   playpen. Children, in their parent's coordinates, move and size freely. */
 static int is_top_level(HWND h) { return !(GetWindowLongA(h, GWL_STYLE) & WS_CHILD); }
+static int runtime_sized(HWND h) { return h == g_main_hwnd || h == g_screen_hwnd; }
 
 /* SetWindowPos(hwnd@12, hWndInsertAfter@10, x@8, y@6, cx@4, cy@2, flags@0) */
 void USER_SETWINDOWPOS(CPU *cpu) {
@@ -1835,7 +1838,11 @@ void USER_SETWINDOWPOS(CPU *cpu) {
     int x = (int16_t)b_a16(cpu, 8), y = (int16_t)b_a16(cpu, 6);
     int cx = (int16_t)b_a16(cpu, 4), cy = (int16_t)b_a16(cpu, 2);
     UINT fl = b_a16(cpu, 0);
-    if (h && is_top_level(h)) fl |= SWP_NOMOVE | SWP_NOSIZE;
+    if (h && is_top_level(h)) fl |= SWP_NOMOVE | (runtime_sized(h) ? SWP_NOSIZE : 0);
+    if (getenv("RECOMP_LOG_WINPOS"))
+        fprintf(stderr, "[winpos] SetWindowPos(guest %u %s%s, %d,%d %dx%d, flags %04X)\n",
+                b_a16(cpu, 12), h && is_top_level(h) ? "top" : "child",
+                h == g_main_hwnd ? " main" : h == g_screen_hwnd ? " screen" : "", x, y, cx, cy, fl);
     /* Never steal focus from whatever the person is doing. */
     cpu->ax = (uint16_t)(h ? SetWindowPos(h, after, x, y, cx, cy, fl | SWP_NOACTIVATE) : 0);
     b_ret(cpu, 14);
@@ -1844,10 +1851,19 @@ void USER_SETWINDOWPOS(CPU *cpu) {
 void USER_MOVEWINDOW(CPU *cpu) {            /* (hwnd@10, x@8, y@6, w@4, h@2, bRepaint@0) */
     HWND h = get_hwnd(b_a16(cpu, 10));
     cpu->ax = 1;
+    if (getenv("RECOMP_LOG_WINPOS"))
+        fprintf(stderr, "[winpos] MoveWindow(guest %u %s%s, %d,%d %dx%d)\n", b_a16(cpu, 10),
+                h && is_top_level(h) ? "top" : "child",
+                h == g_main_hwnd ? " main" : h == g_screen_hwnd ? " screen" : "",
+                (int16_t)b_a16(cpu, 8), (int16_t)b_a16(cpu, 6),
+                (int16_t)b_a16(cpu, 4), (int16_t)b_a16(cpu, 2));
     if (h && !is_top_level(h))
         cpu->ax = (uint16_t)MoveWindow(h, (int16_t)b_a16(cpu, 8), (int16_t)b_a16(cpu, 6),
                                        (int16_t)b_a16(cpu, 4), (int16_t)b_a16(cpu, 2),
                                        b_a16(cpu, 0));
+    else if (h && !runtime_sized(h))
+        SetWindowPos(h, NULL, 0, 0, (int16_t)b_a16(cpu, 4), (int16_t)b_a16(cpu, 2),
+                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     b_ret(cpu, 12);
 }
 
