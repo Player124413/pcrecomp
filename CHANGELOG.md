@@ -6,6 +6,12 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `assets/is3extract.py`: InstallShield 3 archives (`.Z`, `.LIB`, spanned
+  `NAME.1`/`NAME.2`), with its own PKWARE DCL decoder. i3comp extracts nothing
+  for a file split across volumes, and on Oddballz that file is the game
+  (`ODDBALLZ.WAD`); it also skips subdirectories that do not exist yet.
+  Verified byte-identical against i3comp on every file i3comp does extract
+  (Dogz, Oddballz). `--selftest` pins the DCL decoder and the volume join.
 - disasm64: x86-64 function recovery for PE32+, so the 64-bit path no longer
   needs an IDA catalog. Seeds from `.pdata` primary entries (chained entries
   are cold chunks, not functions), the Guard CF table, exports, DIR64
