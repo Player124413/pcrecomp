@@ -62,10 +62,53 @@ index `i` to NE segment `i + 1` for CODE-class segments.
 
 ## Lifting to C
 
-NE code lifts with the shared 16-bit lifter (`../lift/lift16.py`) once
-relocations are resolved to far-call/import targets. Runtime-library imports
-(DOS extenders, the Windows kernel, vendor DLLs) need an ordinal->signature
-map for the specific module -- that map is per-application reverse-engineering,
-not something the toolkit can ship generically. See the `elfish` project's
-`ne_lift.py` / `tsxlib.py` for a worked example of wiring an extender's import
-library into the lifter.
+NE code lifts with the shared 16-bit lifter (`../lift/lift16.py`) through
+`../lift/ne_lift.py`, which resolves relocations to far-call/import targets and
+emits a Win16 import as a `MODULE_API(cpu)` shim call.
+
+### A whole Win16 program: `ne_link.py`
+
+A Win16 game is a host plus the DLLs it imports by ordinal, and a static
+recompile has to turn each cross-module import into a direct call. `ne_link.py`
+lifts all of them into one tree:
+
+```bash
+python tools/ne/ne_link.py --work work --ida-dir work/ida --seeds tools/entry_seeds.json \
+    --shims <pcrecomp>/runtime/win16/host --shims runtime \
+    game/ENGINE.DLL game/OTHER.DLL game/HOST.EXE      # DLLs first, host last
+```
+
+It renumbers the modules into one segment space (`NEHeader.renumber`), gives
+the lifter every module's export table (data exports included: an importer
+loads a DLL's variables through the same relocations), lifts every code
+segment into `work/src/segNNN.c`, and writes the flat image and
+`mem_layout.h` (`gen_image.py`, whose `RECOMP_MODULES[]` table tells the runtime
+each module's segments, entry and DGROUP). It then regenerates the glue:
+unresolved-call stubs, `segments.h`, the indirect-call table
+(`gen_dispatch.py`) and the Win16 import surface of all modules minus the
+lifted ones (`gen_win16_stubs.py`, which reads a purge the table lacks from the
+exporting DLL's own `retf N`).
+
+Everything under `--work` is derived from the game's binaries: gitignore it.
+
+Companions:
+
+| Tool | Does |
+|---|---|
+| `patch_borland_eh.py` | Guards Borland C++'s EH cleanup-chain walker, found by signature, against the re-entrant-WNDPROC chain corruption that otherwise hangs the first exception. |
+| `seed_misses.py` | Turns `[dispatch] far MISS seg=N off=X` lines from a run log into `--seeds` entries (module, module-local segment). |
+| `bpguard.py` | Instruments every lifted call site with a callee-saved BP/DS/SP check, for hunting frame corruption. |
+
+Used by catz (2 modules), dogz (4) and oddballz (8).
+
+## The Win16 host runtime
+
+`runtime/win16/host/` is Win16-on-Win32 for a program lifted with `ne_link.py`:
+KERNEL/USER/GDI/WinG/MMSYSTEM shims, NE resource serving (string tables,
+`RT_NAMETABLE`, `AccessResource`), INT 21h file services, the window/dialog
+bridge and the host `main()`, which runs each DLL's LibMain from
+`RECOMP_MODULES[]` and then the host's startup. A game supplies one
+`RecompGame` (`recomp_game.h`) with the few facts the shims need about it --
+guest install directory, INI fallbacks and defaults, palette resource, licence
+key hint, and an optional `GetProcAddress` hook for DLLs it loads but does not
+lift -- and links the host sources with its lifted tree.

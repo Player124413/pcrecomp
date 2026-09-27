@@ -5,6 +5,32 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `tools/ne/ne_link.py`: lift a Win16 program made of several NE modules
+  into one segment numbering, image and glue, with cross-module imports as
+  direct calls (Catz 2 modules, Dogz 4, Oddballz 8). With it:
+  `gen_dispatch.py`, `seed_misses.py`, `bpguard.py`, `patch_borland_eh.py`
+  (from catz), and multi-module `gen_image.py` / `gen_win16_stubs.py`.
+- `runtime/win16/host/`: the Win16-on-Win32 host runtime, upstreamed from
+  catz and generalised (per-game `RecompGame`, module table, host thunks,
+  GetProcAddress/LoadLibrary by path, RT_NAMETABLE, FindFirst/FindNext,
+  AccessResource/_hread, template-font dialog units, and the USER/GDI/KERNEL
+  surface Dogz and Oddballz reach).
+- `gen_win16_stubs.py --dll-dir`: an unknown purge is read from the
+  exporting DLL's own `retf N`.
+
+### Fixed
+- `ne_decode`: catz's decoder fixes ported (catch handlers from OFFSET16
+  relocations, jump tables in code, block after jmp/ret, recover at forced
+  entries without doubling FWAIT x87 ops, a code map from another module
+  ignored), plus: segment lookups survive renumbering, and recover() no
+  longer decodes across another entry point.
+- `ne_lift` imported disasm/lift from `../../tools/tools`, a path that only
+  resolved from a checkout named `tools` beside catz.
+- `lift16`: a tail jump's real-mode paragraph was masked to 16 bits, breaking
+  NE modules past 1 MB (`0x-E8121` in the output).
+- `win16`: `SOSLIB03.SOSDIGIDETECTINIT` purge is 6, not 4.
+
 From #4. Found running Gunman Chronicles (MSVC 6 CRT, Quake-lineage software renderer)
 fully recompiled; each is generic x86 semantics or code generation. Each fix
 has a difftest case against Unicorn: 175/187 match, 12 known divergences,
