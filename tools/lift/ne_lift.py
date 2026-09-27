@@ -35,10 +35,13 @@ import sys
 import os
 from typing import Optional
 
-_PC = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'tools', 'tools'))
-sys.path.insert(0, os.path.join(_PC, 'disasm'))
-sys.path.insert(0, os.path.join(_PC, 'lift'))
-sys.path.insert(0, os.path.dirname(__file__))
+# This file's own toolbox, never a sibling checkout: the path used to be
+# '../../tools/tools', which only resolved because catz sat next to a checkout
+# named `tools` -- and from any other checkout it silently imported THAT one's
+# decoder and lifter instead.
+_PC = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+for _d in ('disasm', 'lift', 'ne'):
+    sys.path.insert(0, os.path.join(_PC, _d))
 
 from decode16 import Decoder, Instruction, OpType, Operand, REG16_NAMES
 from lift16 import Lifter, _read, _write, _reg16, _sreg, _mem_addr, _label

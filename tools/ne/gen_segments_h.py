@@ -42,6 +42,9 @@ def main():
     ap.add_argument("--src", required=True, help="directory of lifted seg*.c")
     ap.add_argument("--out", required=True, help="segments.h to write")
     ap.add_argument("--ne", help="the NE binary, to size the selector table")
+    ap.add_argument("--max-seg", type=int, default=0,
+                    help="highest segment number; ne_link passes the total over "
+                         "all modules, which --ne (one module) cannot know")
     ap.add_argument("--guard", default="RECOMP_SEGMENTS_H")
     args = ap.parse_args()
 
@@ -49,7 +52,7 @@ def main():
     if not by_seg:
         sys.exit(f"no lifted functions found in {args.src}")
 
-    max_seg = max(by_seg)
+    max_seg = max(max(by_seg), args.max_seg)
     if args.ne:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from ne_parse import parse_ne
