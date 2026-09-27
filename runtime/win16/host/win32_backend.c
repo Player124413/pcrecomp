@@ -1198,14 +1198,36 @@ static int dlg_build(CPU *cpu, uint16_t hinst, uint16_t tmpl, HWND dlg,
     p = w16_sz(p, end, buf, sizeof buf);          /* menu    */
     p = w16_sz(p, end, buf, sizeof buf);          /* class   */
     p = w16_sz(p, end, cap, capsz);               /* caption */
+    int pt = 0;
+    char face[LF_FACESIZE] = "";
     if (style & DS_SETFONT_W16) {
-        if (p + 2 <= end) p += 2;                 /* point size */
-        p = w16_sz(p, end, buf, sizeof buf);      /* typeface   */
+        if (p + 2 <= end) { pt = p[0] | (p[1] << 8); p += 2; }   /* point size */
+        p = w16_sz(p, end, face, sizeof face);                    /* typeface   */
     }
 
-    /* Dialog units -> pixels using the system dialog base units. */
+    /* Dialog units -> pixels. A template with its own font is laid out in THAT
+     * font's units, as Windows does it: average width of the alphabet and the
+     * font's height. The system dialog units of a modern Windows (8x16) made
+     * Oddballz's 338x253-unit intro 676x506 -- bigger than the 640x480 screen
+     * it was designed for, with its Next/Exit buttons off the bottom. At 8 pt
+     * MS Sans Serif the same template is about 507x411. */
     LONG bu = GetDialogBaseUnits();
     int bux = LOWORD(bu), buy = HIWORD(bu);
+    HFONT font = NULL;
+    if (pt > 0 && face[0]) {
+        HDC sdc = GetDC(NULL);
+        font = CreateFontA(-MulDiv(pt, 96, 72), 0, 0, 0, FW_NORMAL, 0, 0, 0,
+                           DEFAULT_CHARSET, 0, 0, DEFAULT_QUALITY, 0, face);
+        HGDIOBJ old = SelectObject(sdc, font);
+        SIZE sz; TEXTMETRICA tm;
+        static const char az[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        if (GetTextExtentPoint32A(sdc, az, 52, &sz) && GetTextMetricsA(sdc, &tm)) {
+            bux = (sz.cx / 26 + 1) / 2;
+            buy = tm.tmHeight;
+        }
+        SelectObject(sdc, old);
+        ReleaseDC(NULL, sdc);
+    }
     *out_w = cx * bux / 4;
     *out_h = cy * buy / 8;
 
@@ -1236,6 +1258,10 @@ static int dlg_build(CPU *cpu, uint16_t hinst, uint16_t tmpl, HWND dlg,
                                  dlg, (HMENU)(UINT_PTR)id,
                                  GetModuleHandle(NULL), NULL);
         if (c) made++;
+        /* The controls use the template font too, or their text overflows the
+           rectangles it laid out. ponytail: one font per dialog, never freed;
+           a handful per session. */
+        if (c && font) SendMessageA(c, WM_SETFONT, (WPARAM)font, FALSE);
     }
     fprintf(stderr, "[win32] dialog %u template: %d/%d controls, %dx%d dlgunits "
                     "-> %dx%d px\n", tmpl, made, nitems, cx, cy, *out_w, *out_h);
@@ -1793,6 +1819,15 @@ static HWND insert_after(uint16_t g) {
     }
 }
 
+/* The guest's screen is the playpen's 640x480 client area (GetWindowRect,
+   GetClientRect and ClientToScreen all say so, win16_impl.c), so a position it
+   gives a TOP-LEVEL window is in that space, not the host desktop's. Passing it
+   through put Catz's frame at its saved "Playpen Window Location" on the
+   host's primary monitor -- off the screen it was started on, and onto the
+   person's own. Top-level windows keep z-order and show/hide; only children,
+   whose coordinates are their parent's, move and size. */
+static int is_top_level(HWND h) { return !(GetWindowLongA(h, GWL_STYLE) & WS_CHILD); }
+
 /* SetWindowPos(hwnd@12, hWndInsertAfter@10, x@8, y@6, cx@4, cy@2, flags@0) */
 void USER_SETWINDOWPOS(CPU *cpu) {
     HWND h = get_hwnd(b_a16(cpu, 12));
@@ -1800,6 +1835,7 @@ void USER_SETWINDOWPOS(CPU *cpu) {
     int x = (int16_t)b_a16(cpu, 8), y = (int16_t)b_a16(cpu, 6);
     int cx = (int16_t)b_a16(cpu, 4), cy = (int16_t)b_a16(cpu, 2);
     UINT fl = b_a16(cpu, 0);
+    if (h && is_top_level(h)) fl |= SWP_NOMOVE | SWP_NOSIZE;
     /* Never steal focus from whatever the person is doing. */
     cpu->ax = (uint16_t)(h ? SetWindowPos(h, after, x, y, cx, cy, fl | SWP_NOACTIVATE) : 0);
     b_ret(cpu, 14);
@@ -1807,9 +1843,11 @@ void USER_SETWINDOWPOS(CPU *cpu) {
 
 void USER_MOVEWINDOW(CPU *cpu) {            /* (hwnd@10, x@8, y@6, w@4, h@2, bRepaint@0) */
     HWND h = get_hwnd(b_a16(cpu, 10));
-    cpu->ax = (uint16_t)(h ? MoveWindow(h, (int16_t)b_a16(cpu, 8), (int16_t)b_a16(cpu, 6),
-                                        (int16_t)b_a16(cpu, 4), (int16_t)b_a16(cpu, 2),
-                                        b_a16(cpu, 0)) : 0);
+    cpu->ax = 1;
+    if (h && !is_top_level(h))
+        cpu->ax = (uint16_t)MoveWindow(h, (int16_t)b_a16(cpu, 8), (int16_t)b_a16(cpu, 6),
+                                       (int16_t)b_a16(cpu, 4), (int16_t)b_a16(cpu, 2),
+                                       b_a16(cpu, 0));
     b_ret(cpu, 12);
 }
 

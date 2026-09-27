@@ -623,6 +623,20 @@ void GDI_CREATEPALETTE(CPU *cpu) {           /* (lpLogPalette@0/2) */
         }
         handle = (uint16_t)(0x0E00 + (++g_npal));
         p->h = handle;
+        if (getenv("RECOMP_LOG_PAL")) {     /* what the guest asked for, flags included */
+            unsigned flags[4] = { 0 };
+            for (unsigned c = 0; c < n; c++) {
+                uint8_t f = mem_read8(cpu, seg, (uint16_t)(off + 4 + c * 4 + 3));
+                flags[f & 1 ? 1 : f & 2 ? 2 : f & 4 ? 3 : 0]++;
+            }
+            fprintf(stderr, "[pal] CreatePalette %04X: %u entries; flags none=%u "
+                    "RESERVED=%u EXPLICIT=%u NOCOLLAPSE=%u; first:", handle, n,
+                    flags[0], flags[1], flags[2], flags[3]);
+            for (unsigned c = 0; c < n && c < 12; c++)
+                fprintf(stderr, " %02X%02X%02X/%X", p->rgbq[c * 4 + 2], p->rgbq[c * 4 + 1],
+                        p->rgbq[c * 4], mem_read8(cpu, seg, (uint16_t)(off + 4 + c * 4 + 3)));
+            fprintf(stderr, "\n");
+        }
         /* Adopt the first one immediately so a surface created before any
            SelectPalette still gets real colours. */
         if (!g_have_pal) { memcpy(g_active_pal, p->rgbq, sizeof g_active_pal); g_have_pal = 1; }
@@ -756,7 +770,36 @@ void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,
                Testing the caller's table for "empty" is not enough -- stale
                bytes further into the buffer make it look populated while the
                entries that matter are all black. */
-            if (g_have_pal) {
+            if (getenv("RECOMP_LOG_PAL")) {
+                fprintf(stderr, "[pal] WinGCreateBitmap %dx%d: guest table first:", w, h);
+                for (unsigned c = 0; c < 12; c++)
+                    fprintf(stderr, " %02X%02X%02X", mem_read8(cpu, hseg, (uint16_t)(hoff + 40 + c * 4 + 2)),
+                            mem_read8(cpu, hseg, (uint16_t)(hoff + 41 + c * 4)),
+                            mem_read8(cpu, hseg, (uint16_t)(hoff + 40 + c * 4)));
+                fprintf(stderr, "  (active palette %s)\n", g_have_pal ? "used" : "absent");
+            }
+            /* ...but only when the caller's table is not a real one. An
+               identity table for an 8-bit WinG surface starts with the ten
+               Windows static colours; a table that does is what the art is
+               indexed against. Oddballz passes exactly that, with a DIFFERENT
+               logical palette selected (its entry 10 is black where the art's
+               is white), and preferring the logical palette recoloured every
+               sprite. Catz passes a blank table, so it still falls through. */
+            static const uint8_t STATIC10[10][3] = {
+                {0x00,0x00,0x00},{0x80,0x00,0x00},{0x00,0x80,0x00},{0x80,0x80,0x00},
+                {0x00,0x00,0x80},{0x80,0x00,0x80},{0x00,0x80,0x80},{0xC0,0xC0,0xC0},
+                {0xC0,0xDC,0xC0},{0xA6,0xCA,0xF0} };
+            int identity = bpp == 8;
+            for (unsigned c = 0; identity && c < 10; c++)
+                identity = mem_read8(cpu, hseg, (uint16_t)(hoff + 42 + c * 4)) == STATIC10[c][0]
+                        && mem_read8(cpu, hseg, (uint16_t)(hoff + 41 + c * 4)) == STATIC10[c][1]
+                        && mem_read8(cpu, hseg, (uint16_t)(hoff + 40 + c * 4)) == STATIC10[c][2];
+            if (identity) {
+                for (unsigned c = 0; c < 256; c++)
+                    for (int b = 0; b < 4; b++)
+                        g_wing[i].pal[c * 4 + b] =
+                            mem_read8(cpu, hseg, (uint16_t)(hoff + 40 + c * 4 + b));
+            } else if (g_have_pal) {
                 memcpy(g_wing[i].pal, g_active_pal, sizeof g_wing[i].pal);
             } else {
                 unsigned n = 1u << bpp;
