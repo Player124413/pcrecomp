@@ -137,7 +137,7 @@ PURGE = {
     # unreadable, so every ball plotted as colour 0 (a black cat on black).
     # HMI Sound Operating System: PASCAL too -- the call sites push and never
     # 'add sp' afterwards.
-    ('SOSLIB03', 'SOSDIGIDETECTINIT'): 4, ('SOSLIB03', 'SOSDIGIUSERSERVICE'): 2,
+    ('SOSLIB03', 'SOSDIGIDETECTINIT'): 6, ('SOSLIB03', 'SOSDIGIUSERSERVICE'): 2,
     ('USER', 'GETCURSORPOS'): 4,        ('USER', 'BRINGWINDOWTOTOP'): 2,
     ('USER', 'CHECKDLGBUTTON'): 6,      ('USER', 'DESTROYICON'): 2,
     ('USER', 'ENABLEWINDOW'): 4,        ('USER', 'GETACTIVEWINDOW'): 0,
@@ -487,6 +487,12 @@ PURGE.update({
 _W, _D = 2, 4   # WORD-sized / DWORD-sized argument
 
 _PROTO = {
+    # ---- COMMDLG ---- each takes one far pointer to its struct
+    'COMMDLG.CHOOSECOLOR': [_D],
+    'COMMDLG.CHOOSEFONT': [_D],
+    'COMMDLG.GETOPENFILENAME': [_D],
+    'COMMDLG.GETSAVEFILENAME': [_D],
+    'COMMDLG.PRINTDLG': [_D],
     # ---- GDI ----
     'GDI.ARC': [_W,_W,_W,_W,_W,_W,_W,_W,_W],
     'GDI.COMBINERGN': [_W,_W,_W,_W],
