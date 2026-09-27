@@ -46,11 +46,31 @@ typedef struct {
      * them. See ne_resources.c. */
     int resource_tags;
 
+    /* When a LoadString/FindResource misses in the module it names, search the
+     * other lifted modules too. Catz's engine passes the EXE's handle for
+     * strings that live in its DLL; Windows would fail those. 0 = Windows. */
+    int resource_fallback;
+
     /* Licence data the game reads from an INI and this project does not ship.
      * When the read comes back empty, serial_help is printed once. NULL = none. */
     const char *serial_key;
     const char *serial_help;
+
+    /* GetProcAddress into a module that was NOT lifted (a DLL the game loads at
+     * run time by path, say). Fill a guest far pointer -- usually one from
+     * recomp_host_thunk() -- and return 1, or return 0 to report no such
+     * export. NULL: every such lookup fails. */
+    int (*proc_address)(uint16_t hinst, const char *name, int ordinal,
+                        uint16_t *seg, uint16_t *off);
 } RecompGame;
+
+struct CPU;
+/* A native function the guest can call through a far pointer. The returned
+ * value is seg<<16|off in a segment no lifted code occupies; dispatch_far runs
+ * fn(cpu, arg) when the guest calls it. fn owns the return: pop the 4-byte far
+ * return frame plus its PASCAL arguments, and leave results in AX / DX:AX.
+ * 0 when the table is full. */
+uint32_t recomp_host_thunk(void (*fn)(struct CPU *cpu, uint16_t arg), uint16_t arg);
 
 extern const RecompGame recomp_game;
 
@@ -58,5 +78,13 @@ extern const RecompGame recomp_game;
 #include "mem_layout.h"
 uint16_t recomp_dgroup_of_seg(uint16_t seg);
 const RecompModule *recomp_module_of_hinst(uint16_t hinst);
+
+/* A lifted module's hInstance is its DGROUP selector, and for the first few
+ * modules that is a small number. Win16 reads any LoadLibrary result below 32
+ * as an error code, so Oddballz (intro DLL: DGROUP 4) decided the load had
+ * failed and threw. LoadLibrary hands out 0xE000|sel for those instead, and
+ * every handle lookup folds it back. */
+static inline uint16_t recomp_hinst_alias(uint16_t h)   { return h < 32 ? (uint16_t)(0xE000 | h) : h; }
+static inline uint16_t recomp_hinst_unalias(uint16_t h) { return (h & 0xFFE0) == 0xE000 ? (uint16_t)(h & 0x1F) : h; }
 
 #endif

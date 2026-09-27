@@ -186,14 +186,56 @@ void KERNEL_GLOBALHANDLE(CPU *cpu) {        /* -> DX:AX = selector:handle (same)
  * CATZDLL's STRINGTABLE; without these it throws KatzError "CATZREZX.DLL did not
  * load" at startup. */
 
+static int map_guest_path(const char *g, char *host, int hostsz);
+
 void KERNEL_LOADLIBRARY(CPU *cpu) {         /* LoadLibrary(lpLibFileName) */
     char name[128]; read_asciiz(cpu, a16(cpu, 2), a16(cpu, 0), name, sizeof name);
-    uint16_t h = ne_loadlib(name);
+    /* A name with a directory is a file the game ships somewhere in its tree
+       (Oddballz: EGGZ\DYNAROO\DYNAROO.ODD); resolve it like any guest path. */
+    char host[320];
+    const char *hp = NULL;
+    if ((strchr(name, '\\') || strchr(name, '/')) && map_guest_path(name, host, sizeof host)
+        && GetFileAttributesA(host) != INVALID_FILE_ATTRIBUTES)
+        hp = host;
+    uint16_t h = ne_loadlib(name, hp);
     if (!h) h = 0x0040;                     /* benign handle for DLLs w/o resources (WIN87EM) */
     IMPL_LOG("[win16] LoadLibrary(%s) -> %04X\n", name, h);
     cpu->ax = h;                            /* >32 == success */
     ret(cpu, 4);
 }
+
+void KERNEL_GETPROCADDRESS(CPU *cpu) {      /* GetProcAddress(hModule, lpProcName) */
+    uint16_t noff = a16(cpu, 0), nseg = a16(cpu, 2), hmod = a16(cpu, 4);
+    char name[128] = "";
+    uint16_t seg = 0, off = 0;
+    int ok;
+    if (nseg) {                             /* by name */
+        read_asciiz(cpu, nseg, noff, name, sizeof name);
+        ok = ne_proc_address(hmod, name, 0, &seg, &off);
+    } else {                                /* MAKEINTRESOURCE ordinal */
+        snprintf(name, sizeof name, "@%u", noff);
+        ok = ne_proc_address(hmod, NULL, noff, &seg, &off);
+    }
+    if (!ok && recomp_game.proc_address)    /* not lifted: the game may answer it */
+        ok = recomp_game.proc_address(hmod, nseg ? name : NULL, nseg ? 0 : noff, &seg, &off);
+    fprintf(stderr, "[win16] GetProcAddress(%04X, %s) -> %04X:%04X%s\n", hmod, name,
+            seg, off, ok ? "" : "  (not a lifted export)");
+    cpu->dx = ok ? seg : 0;
+    cpu->ax = ok ? off : 0;
+    ret(cpu, 6);
+}
+
+/* MakeProcInstance(lpProc, hInst): the thunk it built only loaded the module's
+ * DGROUP into AX before jumping to lpProc. Here a callback gets its module's
+ * DGROUP from recomp_dgroup_of_seg when it is entered, so the procedure's own
+ * address is the right answer. Returning 0 registered Oddballz's window class
+ * with a null WNDPROC. */
+void KERNEL_MAKEPROCINSTANCE(CPU *cpu) {
+    cpu->ax = a16(cpu, 2);                  /* offset of lpProc */
+    cpu->dx = a16(cpu, 4);                  /* selector of lpProc */
+    ret(cpu, 6);
+}
+void KERNEL_FREEPROCINSTANCE(CPU *cpu) { ret(cpu, 4); }
 
 void KERNEL_FREELIBRARY(CPU *cpu) { cpu->ax = 1; ret(cpu, 2); }
 void KERNEL_FREERESOURCE(CPU *cpu) { cpu->ax = 0; ret(cpu, 2); }  /* FALSE == still in use, ok */
@@ -255,7 +297,12 @@ void KERNEL_LOADRESOURCE(CPU *cpu) {        /* LoadResource(hInst,hResInfo) -> H
     const uint8_t *bytes = ne_resource_bytes(hrsrc, &len);
     if (!bytes) { cpu->ax = 0; ret(cpu, 4); return; }
     uint16_t sel = galloc(cpu, len);
-    if (sel) for (uint32_t i = 0; i < len; i++) mem_write8(cpu, sel, (uint16_t)i, bytes[i]);
+    /* One contiguous copy: a block over 64 KB is tiled across consecutive
+       selectors over one flat range (cpu_alloc_selector), and a per-byte write
+       through `sel` with a 16-bit offset wrapped every resource past 64 KB --
+       Oddballz's sounds -- back over its own first segment. */
+    if (sel && cpu->sel_base[sel] + len <= cpu->mem_size)
+        memcpy(cpu->mem + cpu->sel_base[sel], bytes, len);
     IMPL_LOG("[win16] LoadResource(hrsrc=%04X) -> sel=%04X (%u bytes)\n", hrsrc, sel, len);
     cpu->ax = sel;
     ret(cpu, 4);
@@ -267,11 +314,26 @@ void KERNEL_LOCKRESOURCE(CPU *cpu) {        /* LockResource(hResData) -> far ptr
     ret(cpu, 2);
 }
 
-void KERNEL_SIZEOFRESOURCE(CPU *cpu) {      /* SizeofResource(hInst,hResInfo) */
+void KERNEL_SIZEOFRESOURCE(CPU *cpu) {      /* SizeofResource(hInst,hResInfo) -> DWORD */
     uint16_t hrsrc = a16(cpu, 0);
     uint32_t len = 0;
     ne_resource_bytes(hrsrc, &len);
     cpu->ax = (uint16_t)len;
+    cpu->dx = (uint16_t)(len >> 16);        /* a DWORD: Oddballz's sounds pass 64K */
+    ret(cpu, 4);
+}
+
+static uint16_t lfile_add(FILE *f);
+
+/* AccessResource(hInst, hResInfo): a read-only file handle positioned at the
+ * resource's bytes in its module. Stubbed, it returned 0 and Oddballz read a
+ * size of 1 GB out of whatever handle 0 was. */
+void KERNEL_ACCESSRESOURCE(CPU *cpu) {
+    uint16_t hrsrc = a16(cpu, 0);
+    char path[512]; uint32_t off = 0;
+    FILE *f = ne_resource_file(hrsrc, path, sizeof path, &off) ? fopen(path, "rb") : NULL;
+    if (f && fseek(f, (long)off, SEEK_SET) != 0) { fclose(f); f = NULL; }
+    cpu->ax = f ? lfile_add(f) : 0xFFFF;    /* HFILE_ERROR */
     ret(cpu, 4);
 }
 
@@ -1700,9 +1762,10 @@ static int map_guest_path(const char *g, char *host, int hostsz) {
             char cand[256];
             snprintf(cand, sizeof cand, "%s/%s", RECOMP_DATA_DIR, seg[k]);
             for (char *q = cand; *q; q++) if (*q == '\\') *q = '/';
-            FILE *probe = fopen(cand, "rb");
-            if (probe) { fclose(probe);
-                         snprintf(host, hostsz, "%s", cand); found = 1; }
+            /* GetFileAttributes, not fopen: a directory has to resolve too,
+               or FindFirst on "C:\GAME\EGGZ\*.*" lists the install root. */
+            if (GetFileAttributesA(cand) != INVALID_FILE_ATTRIBUTES) {
+                snprintf(host, hostsz, "%s", cand); found = 1; }
         }
         if (!found) {                    /* report the leaf, as before */
             const char *leaf = seg[nseg - 1];
@@ -1774,6 +1837,48 @@ static char g_last_dos_path[192];
 static int dos_map_path(CPU *cpu, char *host, int hostsz) {
     read_asciiz(cpu, cpu->ds, cpu->dx, g_last_dos_path, sizeof g_last_dos_path);
     return map_guest_path(g_last_dos_path, host, hostsz);
+}
+
+/* ---- FindFirst/FindNext (INT 21h 4Eh/4Fh) and the DTA they fill (1Ah/2Fh).
+ * Borland's findfirst/findnext loop on CF; left to the default case, which
+ * returned success, Oddballz enumerated its EGGZ directory forever. The DTA's
+ * reserved first bytes carry which host search it belongs to, as real DOS kept
+ * its own state there. */
+static uint16_t g_dta_seg, g_dta_off = 0x80;
+static HANDLE   g_find[16];
+
+static void dta_fill(CPU *cpu, const WIN32_FIND_DATAA *fd, int slot) {
+    uint16_t s = g_dta_seg, o = g_dta_off;
+    mem_write8(cpu, s, o, 'R'); mem_write8(cpu, s, (uint16_t)(o + 1), (uint8_t)slot);
+    uint8_t attr = (uint8_t)(fd->dwFileAttributes & 0x3F);
+    FILETIME lt; WORD dd = 0, dt = 0;
+    FileTimeToLocalFileTime(&fd->ftLastWriteTime, &lt);
+    FileTimeToDosDateTime(&lt, &dd, &dt);
+    mem_write8(cpu, s, (uint16_t)(o + 21), attr);
+    mem_write16(cpu, s, (uint16_t)(o + 22), dt);
+    mem_write16(cpu, s, (uint16_t)(o + 24), dd);
+    mem_write16(cpu, s, (uint16_t)(o + 26), (uint16_t)fd->nFileSizeLow);
+    mem_write16(cpu, s, (uint16_t)(o + 28), (uint16_t)(fd->nFileSizeLow >> 16));
+    /* 8.3, upper case, the only form a DOS program expects back */
+    const char *n = fd->cAlternateFileName[0] ? fd->cAlternateFileName : fd->cFileName;
+    int i = 0;
+    for (; n[i] && i < 12; i++) mem_write8(cpu, s, (uint16_t)(o + 30 + i), (uint8_t)toupper((unsigned char)n[i]));
+    mem_write8(cpu, s, (uint16_t)(o + 30 + i), 0);
+}
+
+/* Next entry the guest's attribute mask admits: normal files always, and
+ * directories/hidden/system only when asked for, as DOS did. */
+static int find_step(CPU *cpu, int slot, WIN32_FIND_DATAA *fd, uint8_t want, int first) {
+    for (;;) {
+        if (!first && !FindNextFileA(g_find[slot], fd)) return 0;
+        first = 0;
+        DWORD a = fd->dwFileAttributes;
+        if (!strcmp(fd->cFileName, ".") || !strcmp(fd->cFileName, "..")) continue;
+        if ((a & FILE_ATTRIBUTE_DIRECTORY) && !(want & 0x10)) continue;
+        if ((a & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) && !(want & 0x06)) continue;
+        dta_fill(cpu, fd, slot);
+        return 1;
+    }
 }
 
 void dos_int21(CPU *cpu) {
@@ -1878,6 +1983,53 @@ void dos_int21(CPU *cpu) {
     case 0x44:                             /* ioctl get-device-info -> regular disk file */
         cpu->dx = 0; cpu->ax = 0; cpu->flags &= ~FLAG_CF;
         break;
+    case 0x1A:                             /* set DTA = ds:dx */
+        g_dta_seg = cpu->ds; g_dta_off = cpu->dx;
+        break;
+    case 0x2F:                             /* get DTA -> es:bx */
+        cpu->es = g_dta_seg; cpu->bx = g_dta_off;
+        break;
+    case 0x4E: {                           /* FindFirst: ds:dx pattern, cx attributes */
+        char pat[192], dir[192], hostdir[256], host[320];
+        static uint8_t want[16];
+        read_asciiz(cpu, cpu->ds, cpu->dx, pat, sizeof pat);
+        const char *leaf = pat;
+        for (const char *q = pat; *q; q++) if (*q == '\\' || *q == '/' || *q == ':') leaf = q + 1;
+        snprintf(dir, sizeof dir, "%.*s", (int)(leaf - pat), pat);
+        if (dir[0] && map_guest_path(dir, hostdir, sizeof hostdir))
+            snprintf(host, sizeof host, "%s/%s", hostdir, leaf);
+        else
+            snprintf(host, sizeof host, "%s/%s", RECOMP_DATA_DIR, leaf);
+        int slot = 0;
+        for (; slot < 16 && g_find[slot]; slot++) {}
+        if (slot == 16) { FindClose(g_find[0]); g_find[0] = NULL; slot = 0; }  /* oldest goes */
+        WIN32_FIND_DATAA fd;
+        g_find[slot] = FindFirstFileA(host, &fd);
+        want[slot] = cpu->cl;
+        if (g_find[slot] == INVALID_HANDLE_VALUE) g_find[slot] = NULL;
+        if (g_find[slot] && find_step(cpu, slot, &fd, want[slot], 1)) {
+            cpu->ax = 0; cpu->flags &= ~FLAG_CF;
+        } else {
+            if (g_find[slot]) { FindClose(g_find[slot]); g_find[slot] = NULL; }
+            cpu->ax = 0x12; cpu->flags |= FLAG_CF;     /* no more files */
+        }
+        IMPL_LOG("[INT21] FindFirst %s -> %s\n", host, (cpu->flags & FLAG_CF) ? "none" : "found");
+        /* 4Fh needs the mask; keep it where it can find it */
+        mem_write8(cpu, g_dta_seg, (uint16_t)(g_dta_off + 2), want[slot]);
+        break;
+    }
+    case 0x4F: {                           /* FindNext: state in the current DTA */
+        int slot = mem_read8(cpu, g_dta_seg, (uint16_t)(g_dta_off + 1));
+        WIN32_FIND_DATAA fd;
+        if (mem_read8(cpu, g_dta_seg, g_dta_off) == 'R' && slot < 16 && g_find[slot]
+            && find_step(cpu, slot, &fd, mem_read8(cpu, g_dta_seg, (uint16_t)(g_dta_off + 2)), 0)) {
+            cpu->ax = 0; cpu->flags &= ~FLAG_CF;
+        } else {
+            if (slot < 16 && g_find[slot]) { FindClose(g_find[slot]); g_find[slot] = NULL; }
+            cpu->ax = 0x12; cpu->flags |= FLAG_CF;
+        }
+        break;
+    }
     case 0x3C:                             /* create (read-only env) */
     case 0x40:                             /* write (read-only env) */
         cpu->ax = 0x05; cpu->flags |= FLAG_CF;
@@ -2053,8 +2205,8 @@ void KERNEL_GETPRIVATEPROFILEINT(CPU *cpu) {
     ini_check_selectors(cpu, "GetPrivateProfileInt", apseg, apoff, fnseg, fnoff);
     char host[320]; ini_resolve(file, app, key, host, sizeof host);
     cpu->ax = (uint16_t)GetPrivateProfileIntA(app, key, ndef, host);
-    fprintf(stderr, "[ini] GetPrivateProfileInt(%s, [%s]@%04X:%04X %s) -> %u\n",
-            file, app, apseg, apoff, key, cpu->ax);
+    fprintf(stderr, "[ini] GetPrivateProfileInt(%s, [%s]@%04X:%04X %s@%04X:%04X) -> %u\n",
+            file, app, apseg, apoff, key, kyseg, kyoff, cpu->ax);
     ret(cpu, 14);
 }
 
@@ -2134,11 +2286,20 @@ void USER__WSPRINTF(CPU *cpu) {
  * The engine loads its data files (pet .lnz, sound tables, sprite data) through
  * OpenFile/_lopen/_lread rather than INT 21h, and these were stubs returning 0 —
  * so every load silently produced nothing. Same host mapping as the DOS path. */
-#define MAX_LFILE 64
-static FILE *g_lfiles[MAX_LFILE];           /* HFILE h -> host FILE* (slot h-1) */
+/* One handle space with INT 21h, as on the real thing: a handle from
+ * AccessResource or _lopen is read with DOS read() as often as with _lread.
+ * Two tables numbered from 1 and 5 handed out colliding handles. */
+#define NDOSFILES ((int)(sizeof g_dosfiles / sizeof g_dosfiles[0]))
 
 static FILE *lfile(uint16_t h) {
-    return (h >= 1 && h <= MAX_LFILE) ? g_lfiles[h - 1] : NULL;
+    return (h >= 5 && h - 5 < NDOSFILES) ? g_dosfiles[h - 5] : NULL;
+}
+
+static uint16_t lfile_add(FILE *f) {
+    for (int i = 0; i < NDOSFILES; i++)
+        if (!g_dosfiles[i]) { g_dosfiles[i] = f; return (uint16_t)(i + 5); }
+    fclose(f);
+    return 0xFFFF;
 }
 
 static uint16_t lopen_host(const char *guest, const char *mode) {
@@ -2146,14 +2307,9 @@ static uint16_t lopen_host(const char *guest, const char *mode) {
     if (!map_guest_path(guest, host, sizeof host)) return 0xFFFF;   /* HFILE_ERROR */
     FILE *f = fopen(host, mode);
     if (!f) { fprintf(stderr, "[file] open FAILED %s -> %s\n", guest, host); return 0xFFFF; }
-    for (int i = 0; i < MAX_LFILE; i++)
-        if (!g_lfiles[i]) {
-            g_lfiles[i] = f;
-            fprintf(stderr, "[file] open %s -> handle %d\n", guest, i + 1);
-            return (uint16_t)(i + 1);
-        }
-    fclose(f);
-    return 0xFFFF;
+    uint16_t h = lfile_add(f);
+    fprintf(stderr, "[file] open %s -> handle %d\n", guest, h);
+    return h;
 }
 
 void KERNEL_OPENFILE(CPU *cpu) {
@@ -2217,6 +2373,25 @@ void KERNEL__LREAD(CPU *cpu) {              /* _lread(hFile, lpBuffer, wBytes) *
     ret(cpu, 8);
 }
 
+/* _hread(hFile, lpBuffer, lBytes) -> LONG: _lread with a 32-bit count into a
+ * huge buffer. The buffer's tiles sit over one flat range (cpu_alloc_selector),
+ * so the read lands at sel_base[sel] + off contiguously. */
+void KERNEL__HREAD(CPU *cpu) {
+    uint32_t n    = a16(cpu, 0) | ((uint32_t)a16(cpu, 2) << 16);
+    uint16_t boff = a16(cpu, 4), bseg = a16(cpu, 6);
+    uint16_t h    = a16(cpu, 8);
+    FILE *f = lfile(h);
+    uint32_t base = cpu->sel_base[bseg] + boff, got = 0;
+    if (f && base < cpu->mem_size) {
+        if (n > cpu->mem_size - base) n = cpu->mem_size - base;
+        got = (uint32_t)fread(cpu->mem + base, 1, n, f);
+        cpu->ax = (uint16_t)got; cpu->dx = (uint16_t)(got >> 16);
+    } else {
+        cpu->ax = 0xFFFF; cpu->dx = 0xFFFF;  /* HFILE_ERROR as a LONG */
+    }
+    ret(cpu, 10);
+}
+
 void KERNEL__LWRITE(CPU *cpu) {             /* read-only bring-up: report success */
     uint16_t n = a16(cpu, 0);
     cpu->ax = n;
@@ -2226,7 +2401,7 @@ void KERNEL__LWRITE(CPU *cpu) {             /* read-only bring-up: report succes
 void KERNEL__LCLOSE(CPU *cpu) {             /* _lclose(hFile) */
     uint16_t h = a16(cpu, 0);
     FILE *f = lfile(h);
-    if (f) { fclose(f); g_lfiles[h - 1] = NULL; }
+    if (f) { fclose(f); g_dosfiles[h - 5] = NULL; }
     cpu->ax = f ? 0 : 0xFFFF;
     ret(cpu, 2);
 }
@@ -2276,3 +2451,102 @@ void TOOLHELP_GLOBALENTRYHANDLE(CPU *cpu) {
     cpu->ax = 1;                            /* TRUE */
     ret(cpu, 6);
 }
+
+/* ==== KERNEL shims first needed by Dogz and Oddballz ==== */
+
+void KERNEL_LSTRLEN(CPU *cpu) {             /* lstrlen(lpString@0/2) */
+    uint16_t o = a16(cpu, 0), s = a16(cpu, 2);
+    uint16_t n = 0;
+    if (s) while (n < 0xFFFF && mem_read8(cpu, s, (uint16_t)(o + n))) n++;
+    cpu->ax = n;
+    ret(cpu, 4);
+}
+
+/* hmemcpy(hpvDest@8/10, hpvSource@4/6, cbCopy@0/2): huge pointers, so a copy
+   can cross 64 KB; the tiles of a huge block are one flat range. */
+void KERNEL_HMEMCPY(CPU *cpu) {
+    uint32_t n = a16(cpu, 0) | ((uint32_t)a16(cpu, 2) << 16);
+    uint32_t src = cpu->sel_base[a16(cpu, 6)] + a16(cpu, 4);
+    uint32_t dst = cpu->sel_base[a16(cpu, 10)] + a16(cpu, 8);
+    if (src + n <= cpu->mem_size && dst + n <= cpu->mem_size)
+        memmove(cpu->mem + dst, cpu->mem + src, n);
+    ret(cpu, 12);
+}
+
+/* GetModuleHandle(lpModuleName@0/2): a lifted module answers with its handle
+   (see recomp_hinst_alias); the system modules get stand-ins so a caller that
+   only checks for non-zero -- or feeds the result to GetProcAddress, which
+   then reports "not lifted" -- carries on. */
+void KERNEL_GETMODULEHANDLE(CPU *cpu) {
+    uint16_t o = a16(cpu, 0), s = a16(cpu, 2);
+    char name[64] = "";
+    if (s) read_asciiz(cpu, s, o, name, sizeof name);
+    else { cpu->ax = o; ret(cpu, 4); return; }   /* already a handle: identity */
+    char base[64]; int k = 0;
+    for (const char *p = name; *p && *p != '.' && k < 63; p++) base[k++] = (char)toupper((unsigned char)*p);
+    base[k] = 0;
+    cpu->ax = 0;
+    for (int i = 0; i < RECOMP_NUM_MODULES; i++) {
+        const RecompModule *m = &RECOMP_MODULES[i];
+        char fb[32]; int j = 0;
+        for (const char *p = m->file; *p && *p != '.' && j < 31; p++) fb[j++] = (char)toupper((unsigned char)*p);
+        fb[j] = 0;
+        if (!strcmp(base, fb) || !_stricmp(base, m->name)) { cpu->ax = recomp_hinst_alias(m->dgroup); break; }
+    }
+    if (!cpu->ax && (!strcmp(base, "KERNEL") || !strcmp(base, "USER") || !strcmp(base, "GDI")))
+        cpu->ax = (uint16_t)(0x00F0 + base[0]);  /* nonzero, never a lifted DGROUP */
+    ret(cpu, 4);
+}
+
+void KERNEL_SETERRORMODE(CPU *cpu) { cpu->ax = 0; ret(cpu, 2); }   /* previous mode */
+void KERNEL_DEBUGBREAK(CPU *cpu)   { ret(cpu, 0); }
+
+/* GetDOSEnvironment() -> far pointer to "VAR=value\0...\0\0". An empty block:
+   nothing the recomp runs reads a variable it would miss. */
+void KERNEL_GETDOSENVIRONMENT(CPU *cpu) {
+    static uint16_t env;
+    if (!env) env = galloc(cpu, 16);        /* zeroed: an empty environment */
+    cpu->dx = env; cpu->ax = 0;
+    ret(cpu, 0);
+}
+
+/* GlobalDosAlloc(dwBytes@0/2) -> DWORD: real-mode paragraph (hi) and
+   selector (lo). There is no real mode here; both halves name the block. */
+void KERNEL_GLOBALDOSALLOC(CPU *cpu) {
+    uint32_t n = a16(cpu, 0) | ((uint32_t)a16(cpu, 2) << 16);
+    uint16_t s = galloc(cpu, n);
+    cpu->ax = s; cpu->dx = s;
+    ret(cpu, 4);
+}
+void KERNEL_GLOBALDOSFREE(CPU *cpu) { cpu->ax = 0; ret(cpu, 2); }
+
+/* WinExec(lpCmdLine@2/4, nCmdShow@0): nothing else can run; 2 = file not found. */
+void KERNEL_WINEXEC(CPU *cpu) { cpu->ax = 2; ret(cpu, 6); }
+
+/* _hwrite(hFile@8, lpBuffer@4/6, lBytes@0/2): as _lwrite, a read-only bring-up
+   reports the whole count written. */
+void KERNEL__HWRITE(CPU *cpu) { cpu->ax = a16(cpu, 0); cpu->dx = a16(cpu, 2); ret(cpu, 10); }
+
+/* TimerCount(lpti@0/2): TIMERINFO { DWORD dwSize, dwmsSinceStart, dwmsThisVM }. */
+void TOOLHELP_TIMERCOUNT(CPU *cpu) {
+    uint16_t o = a16(cpu, 0), s = a16(cpu, 2);
+    DWORD t = GetTickCount();
+    if (s) {
+        for (int k = 4; k <= 8; k += 4) {
+            mem_write16(cpu, s, (uint16_t)(o + k), (uint16_t)t);
+            mem_write16(cpu, s, (uint16_t)(o + k + 2), (uint16_t)(t >> 16));
+        }
+    }
+    cpu->ax = s ? 1 : 0;
+    ret(cpu, 4);
+}
+
+/* The registry (SHELL.DLL). Oddballz registers its file types on every start;
+   there is nothing to register them with, and success lets it move on. */
+void SHELL_REGCREATEKEY(CPU *cpu) {         /* (hKey@8/10, lpSubKey@4/6, phkResult@0/2) */
+    uint16_t o = a16(cpu, 0), s = a16(cpu, 2);
+    if (s) { mem_write16(cpu, s, o, 0x0100); mem_write16(cpu, s, (uint16_t)(o + 2), 0); }
+    cpu->ax = 0; cpu->dx = 0;               /* ERROR_SUCCESS */
+    ret(cpu, 12);
+}
+void SHELL_REGSETVALUE(CPU *cpu) { cpu->ax = 0; cpu->dx = 0; ret(cpu, 20); }

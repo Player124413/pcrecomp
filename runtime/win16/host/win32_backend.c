@@ -1626,3 +1626,541 @@ void USER_LOADBITMAP(CPU *cpu) {
 /* Expose the guest->real HDC mapping to the WinG blit in win16_impl.c. */
 HDC recomp_real_hdc(uint16_t guest_hdc) { return get_hdc(guest_hdc); }
 HWND recomp_real_hwnd(uint16_t guest_hwnd) { return get_hwnd(guest_hwnd); }
+
+/* ==== USER/GDI shims first needed by Dogz and Oddballz ====
+ * Argument offsets are from the last (rightmost) PASCAL argument at 0. Where a
+ * Win16 API has no meaningful host equivalent here (menus on windows that have
+ * no host menu bar, scroll bars on windows that have none) the shim answers the
+ * way Windows would for an object in its initial state, rather than 0 --
+ * a 0 from most of these reads as failure. */
+
+/* A guest pointer as a host pointer into the flat image, or NULL if the range
+   runs off the end. Huge objects are tiled over one flat range, so a pointer
+   into one is contiguous for its whole length. */
+static uint8_t *b_flat(CPU *cpu, uint16_t seg, uint16_t off, uint32_t len) {
+    uint32_t base = cpu->sel_base[seg] + off;
+    if (!seg || base + len > cpu->mem_size || base + len < base) return NULL;
+    return cpu->mem + base;
+}
+
+static uint16_t hwnd_guest(HWND h) {        /* existing guest handle, or 0 */
+    if (!h) return 0;
+    for (int i = 1; i < g_nhwnd; i++) if (g_hwnd[i] == h) return (uint16_t)i;
+    return 0;
+}
+
+static void b_rect_read(CPU *cpu, uint16_t seg, uint16_t off, RECT *r) {
+    r->left   = (int16_t)mem_read16(cpu, seg, off);
+    r->top    = (int16_t)mem_read16(cpu, seg, (uint16_t)(off + 2));
+    r->right  = (int16_t)mem_read16(cpu, seg, (uint16_t)(off + 4));
+    r->bottom = (int16_t)mem_read16(cpu, seg, (uint16_t)(off + 6));
+}
+static void b_rect_write(CPU *cpu, uint16_t seg, uint16_t off, const RECT *r) {
+    mem_write16(cpu, seg, off, (uint16_t)r->left);
+    mem_write16(cpu, seg, (uint16_t)(off + 2), (uint16_t)r->top);
+    mem_write16(cpu, seg, (uint16_t)(off + 4), (uint16_t)r->right);
+    mem_write16(cpu, seg, (uint16_t)(off + 6), (uint16_t)r->bottom);
+}
+
+/* SendMessage(hwnd@8, msg@6, wParam@4, lParam@0). A window with a guest
+   WNDPROC gets the call directly, synchronously, as on Windows. Anything else
+   is a host window (a dialog control, the desktop): only the standard WM_*
+   range means the same thing on both sides, so only that is passed on. */
+void USER_SENDMESSAGE(CPU *cpu) {
+    uint16_t g = b_a16(cpu, 8);
+    UINT msg = b_a16(cpu, 6);
+    uint16_t wp = b_a16(cpu, 4);
+    uint32_t lp = b_a32(cpu, 0);
+    HWND h = get_hwnd(g);
+    uint16_t ps = 0, po = 0;
+    if (h) hwnd_proc(h, &ps, &po);
+    b_ret(cpu, 10);                         /* pop first: the guest proc re-enters */
+    if (h && ps) {
+        cpu->ax = call_guest_wndproc(ps, po, g, (uint16_t)msg, wp, lp);
+        cpu->dx = 0;
+    } else {
+        LRESULT r = (h && msg < WM_USER) ? SendMessageA(h, msg, wp, (LPARAM)lp) : 0;
+        cpu->ax = (uint16_t)r; cpu->dx = (uint16_t)((uint32_t)r >> 16);
+    }
+}
+
+/* CallWindowProc(lpPrevWndFunc@10/12, hwnd@8, msg@6, wParam@4, lParam@0/2) */
+void USER_CALLWINDOWPROC(CPU *cpu) {
+    uint16_t po = b_a16(cpu, 10), ps = b_a16(cpu, 12), g = b_a16(cpu, 8);
+    UINT msg = b_a16(cpu, 6); uint16_t wp = b_a16(cpu, 4); uint32_t lp = b_a32(cpu, 0);
+    b_ret(cpu, 14);
+    if (ps) { cpu->ax = call_guest_wndproc(ps, po, g, (uint16_t)msg, wp, lp); cpu->dx = 0; }
+    else {
+        HWND h = get_hwnd(g);
+        LRESULT r = h ? DefWindowProcA(h, msg, wp, (LPARAM)lp) : 0;
+        cpu->ax = (uint16_t)r; cpu->dx = (uint16_t)((uint32_t)r >> 16);
+    }
+}
+
+/* Window extra bytes (cbWndExtra) live here, not in the host window: the
+   host class was registered without them, and the guest owns their layout. */
+#define WEXTRA 64
+static uint8_t g_wextra[MAXH][WEXTRA];
+
+void USER_GETWINDOWLONG(CPU *cpu) {         /* (hwnd@2, nIndex@0) */
+    uint16_t g = b_a16(cpu, 2); int idx = (int16_t)b_a16(cpu, 0);
+    HWND h = get_hwnd(g);
+    uint32_t v = 0;
+    if (idx == -4 && g < MAXH)                              /* GWL_WNDPROC */
+        v = ((uint32_t)g_hwnd_proc_seg[g] << 16) | g_hwnd_proc_off[g];
+    else if (idx == -16 || idx == -20)                      /* GWL_STYLE / EXSTYLE */
+        v = h ? (uint32_t)GetWindowLongA(h, idx) : 0;
+    else if (idx >= 0 && idx + 4 <= WEXTRA && g < MAXH)
+        memcpy(&v, &g_wextra[g][idx], 4);
+    cpu->ax = (uint16_t)v; cpu->dx = (uint16_t)(v >> 16);
+    b_ret(cpu, 4);
+}
+
+void USER_SETWINDOWLONG(CPU *cpu) {         /* (hwnd@6, nIndex@4, dwNewLong@0) */
+    uint16_t g = b_a16(cpu, 6); int idx = (int16_t)b_a16(cpu, 4);
+    uint32_t nv = b_a32(cpu, 0), old = 0;
+    HWND h = get_hwnd(g);
+    if (idx == -4 && g < MAXH) {                            /* subclassing */
+        old = ((uint32_t)g_hwnd_proc_seg[g] << 16) | g_hwnd_proc_off[g];
+        g_hwnd_proc_seg[g] = (uint16_t)(nv >> 16); g_hwnd_proc_off[g] = (uint16_t)nv;
+    } else if ((idx == -16 || idx == -20) && h) {
+        old = (uint32_t)SetWindowLongA(h, idx, (LONG)nv);
+    } else if (idx >= 0 && idx + 4 <= WEXTRA && g < MAXH) {
+        memcpy(&old, &g_wextra[g][idx], 4); memcpy(&g_wextra[g][idx], &nv, 4);
+    }
+    cpu->ax = (uint16_t)old; cpu->dx = (uint16_t)(old >> 16);
+    b_ret(cpu, 8);
+}
+
+void USER_GETWINDOWWORD(CPU *cpu) {         /* (hwnd@2, nIndex@0) */
+    uint16_t g = b_a16(cpu, 2); int idx = (int16_t)b_a16(cpu, 0);
+    HWND h = get_hwnd(g);
+    uint16_t v = 0;
+    if (idx == -6) v = RECOMP_AUTO_DATA_SEG;                /* GWW_HINSTANCE */
+    else if (idx == -8) v = h ? hwnd_guest(GetParent(h)) : 0;  /* GWW_HWNDPARENT */
+    else if (idx == -12) v = h ? (uint16_t)GetDlgCtrlID(h) : 0; /* GWW_ID */
+    else if (idx >= 0 && idx + 2 <= WEXTRA && g < MAXH) memcpy(&v, &g_wextra[g][idx], 2);
+    cpu->ax = v;
+    b_ret(cpu, 4);
+}
+
+void USER_SETWINDOWWORD(CPU *cpu) {         /* (hwnd@4, nIndex@2, wNewWord@0) */
+    uint16_t g = b_a16(cpu, 4); int idx = (int16_t)b_a16(cpu, 2);
+    uint16_t nv = b_a16(cpu, 0), old = 0;
+    if (idx >= 0 && idx + 2 <= WEXTRA && g < MAXH) {
+        memcpy(&old, &g_wextra[g][idx], 2); memcpy(&g_wextra[g][idx], &nv, 2);
+    }
+    cpu->ax = old;
+    b_ret(cpu, 6);
+}
+
+void USER_GETCLASSWORD(CPU *cpu) { cpu->ax = 0; b_ret(cpu, 4); }   /* (hwnd, nIndex) */
+void USER_SETCLASSWORD(CPU *cpu) { cpu->ax = 0; b_ret(cpu, 6); }   /* (hwnd, nIndex, w) */
+
+void USER_GETCLASSNAME(CPU *cpu) {          /* (hwnd@6, lpClassName@2/4, nMax@0) */
+    HWND h = get_hwnd(b_a16(cpu, 6));
+    uint16_t bo = b_a16(cpu, 2), bs = b_a16(cpu, 4); int nmax = (int16_t)b_a16(cpu, 0);
+    char buf[128] = "";
+    int n = h ? GetClassNameA(h, buf, sizeof buf) : 0;
+    if (n >= nmax) n = nmax > 0 ? nmax - 1 : 0;
+    for (int i = 0; i < n; i++) mem_write8(cpu, bs, (uint16_t)(bo + i), (uint8_t)buf[i]);
+    if (nmax > 0) mem_write8(cpu, bs, (uint16_t)(bo + n), 0);
+    cpu->ax = (uint16_t)n;
+    b_ret(cpu, 8);
+}
+
+void USER_GETWINDOWTEXT(CPU *cpu) {         /* (hwnd@6, lpString@2/4, nMax@0) */
+    HWND h = get_hwnd(b_a16(cpu, 6));
+    uint16_t bo = b_a16(cpu, 2), bs = b_a16(cpu, 4); int nmax = (int16_t)b_a16(cpu, 0);
+    char buf[256] = "";
+    int n = h ? GetWindowTextA(h, buf, sizeof buf) : 0;
+    if (n >= nmax) n = nmax > 0 ? nmax - 1 : 0;
+    for (int i = 0; i < n; i++) mem_write8(cpu, bs, (uint16_t)(bo + i), (uint8_t)buf[i]);
+    if (nmax > 0) mem_write8(cpu, bs, (uint16_t)(bo + n), 0);
+    cpu->ax = (uint16_t)n;
+    b_ret(cpu, 8);
+}
+
+/* Win16 HWND_BOTTOM is 1 and HWND_TOPMOST/NOTOPMOST are -1/-2: small values
+   that collide with guest handles, so they are decoded before the lookup. */
+static HWND insert_after(uint16_t g) {
+    switch (g) {
+    case 0:      return HWND_TOP;
+    case 1:      return HWND_BOTTOM;
+    case 0xFFFF: return HWND_TOPMOST;
+    case 0xFFFE: return HWND_NOTOPMOST;
+    default:     return get_hwnd(g);
+    }
+}
+
+/* SetWindowPos(hwnd@12, hWndInsertAfter@10, x@8, y@6, cx@4, cy@2, flags@0) */
+void USER_SETWINDOWPOS(CPU *cpu) {
+    HWND h = get_hwnd(b_a16(cpu, 12));
+    HWND after = insert_after(b_a16(cpu, 10));
+    int x = (int16_t)b_a16(cpu, 8), y = (int16_t)b_a16(cpu, 6);
+    int cx = (int16_t)b_a16(cpu, 4), cy = (int16_t)b_a16(cpu, 2);
+    UINT fl = b_a16(cpu, 0);
+    /* Never steal focus from whatever the person is doing. */
+    cpu->ax = (uint16_t)(h ? SetWindowPos(h, after, x, y, cx, cy, fl | SWP_NOACTIVATE) : 0);
+    b_ret(cpu, 14);
+}
+
+void USER_MOVEWINDOW(CPU *cpu) {            /* (hwnd@10, x@8, y@6, w@4, h@2, bRepaint@0) */
+    HWND h = get_hwnd(b_a16(cpu, 10));
+    cpu->ax = (uint16_t)(h ? MoveWindow(h, (int16_t)b_a16(cpu, 8), (int16_t)b_a16(cpu, 6),
+                                        (int16_t)b_a16(cpu, 4), (int16_t)b_a16(cpu, 2),
+                                        b_a16(cpu, 0)) : 0);
+    b_ret(cpu, 12);
+}
+
+void USER_ISICONIC(CPU *cpu)        { HWND h = get_hwnd(b_a16(cpu, 0)); cpu->ax = (uint16_t)(h && IsIconic(h)); b_ret(cpu, 2); }
+void USER_ISZOOMED(CPU *cpu)        { HWND h = get_hwnd(b_a16(cpu, 0)); cpu->ax = (uint16_t)(h && IsZoomed(h)); b_ret(cpu, 2); }
+void USER_ISWINDOWVISIBLE(CPU *cpu) { HWND h = get_hwnd(b_a16(cpu, 0)); cpu->ax = (uint16_t)(h && IsWindowVisible(h)); b_ret(cpu, 2); }
+void USER_ENABLEWINDOW(CPU *cpu)    { HWND h = get_hwnd(b_a16(cpu, 2)); cpu->ax = (uint16_t)(h ? EnableWindow(h, b_a16(cpu, 0)) : 0); b_ret(cpu, 4); }
+void USER_GETDLGCTRLID(CPU *cpu)    { HWND h = get_hwnd(b_a16(cpu, 0)); cpu->ax = (uint16_t)(h ? GetDlgCtrlID(h) : 0); b_ret(cpu, 2); }
+
+/* Focus and activation are the person's, not the guest's: report, never take. */
+void USER_GETFOCUS(CPU *cpu)          { cpu->ax = hwnd_guest(GetFocus()); b_ret(cpu, 0); }
+void USER_SETFOCUS(CPU *cpu)          { cpu->ax = hwnd_guest(GetFocus()); b_ret(cpu, 2); }
+void USER_SETACTIVEWINDOW(CPU *cpu)   { cpu->ax = hwnd_guest(GetActiveWindow()); b_ret(cpu, 2); }
+void USER_BRINGWINDOWTOTOP(CPU *cpu)  {
+    HWND h = get_hwnd(b_a16(cpu, 0));
+    if (h) SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    cpu->ax = 1; b_ret(cpu, 2);
+}
+
+/* The desktop is the real one: games size their full-screen play area from it. */
+void USER_GETDESKTOPWINDOW(CPU *cpu) { cpu->ax = put_hwnd(GetDesktopWindow()); b_ret(cpu, 0); }
+
+void USER_SCREENTOCLIENT(CPU *cpu) {        /* (hwnd@4, lpPoint@0/2) */
+    HWND h = get_hwnd(b_a16(cpu, 4));
+    uint16_t po = b_a16(cpu, 0), ps = b_a16(cpu, 2);
+    POINT p = { (int16_t)mem_read16(cpu, ps, po), (int16_t)mem_read16(cpu, ps, (uint16_t)(po + 2)) };
+    if (h) ScreenToClient(h, &p);
+    mem_write16(cpu, ps, po, (uint16_t)p.x); mem_write16(cpu, ps, (uint16_t)(po + 2), (uint16_t)p.y);
+    b_ret(cpu, 6);
+}
+
+void USER_SETRECT(CPU *cpu) {               /* (lpRect@8/10, l@6, t@4, r@2, b@0) */
+    RECT r = { (int16_t)b_a16(cpu, 6), (int16_t)b_a16(cpu, 4), (int16_t)b_a16(cpu, 2), (int16_t)b_a16(cpu, 0) };
+    uint16_t ro = b_a16(cpu, 8), rs = b_a16(cpu, 10);
+    if (rs) b_rect_write(cpu, rs, ro, &r);
+    b_ret(cpu, 12);
+}
+
+void USER_SUBTRACTRECT(CPU *cpu) {          /* (lprcDst@8/10, lprcSrc1@4/6, lprcSrc2@0/2) */
+    RECT a, b, d;
+    b_rect_read(cpu, b_a16(cpu, 6), b_a16(cpu, 4), &a);
+    b_rect_read(cpu, b_a16(cpu, 2), b_a16(cpu, 0), &b);
+    cpu->ax = (uint16_t)SubtractRect(&d, &a, &b);
+    b_rect_write(cpu, b_a16(cpu, 10), b_a16(cpu, 8), &d);
+    b_ret(cpu, 12);
+}
+
+/* The cursor is the person's: the guest may hide its own over its windows,
+   but it does not get to warp or confine the real one. */
+void USER_SHOWCURSOR(CPU *cpu)   { static int count = 0; count += b_a16(cpu, 0) ? 1 : -1; cpu->ax = (uint16_t)count; b_ret(cpu, 2); }
+void USER_SETCURSORPOS(CPU *cpu) { b_ret(cpu, 4); }
+void USER_CLIPCURSOR(CPU *cpu)   { cpu->ax = 1; b_ret(cpu, 4); }
+void USER_DESTROYICON(CPU *cpu)  { cpu->ax = 1; b_ret(cpu, 2); }
+
+/* No second instance and no foreign windows to find: the recomp is the only
+   Win16 program running. EnumWindows therefore enumerates nothing. */
+void USER_FINDWINDOW(CPU *cpu)  { cpu->ax = 0; b_ret(cpu, 8); }
+void USER_ENUMWINDOWS(CPU *cpu) { cpu->ax = 1; b_ret(cpu, 8); }
+
+/* SystemParametersInfo(uiAction@8, uiParam@6, pvParam@2/4, fWinIni@0) */
+void USER_SYSTEMPARAMETERSINFO(CPU *cpu) {
+    UINT act = b_a16(cpu, 8);
+    uint16_t po = b_a16(cpu, 2), ps = b_a16(cpu, 4);
+    cpu->ax = 0;
+    if (act == 48 && ps) {                  /* SPI_GETWORKAREA */
+        RECT r; SystemParametersInfoA(SPI_GETWORKAREA, 0, &r, 0);
+        b_rect_write(cpu, ps, po, &r); cpu->ax = 1;
+    } else if ((act == 16 || act == 14) && ps) {  /* SPI_GETSCREENSAVEACTIVE / TIMEOUT */
+        mem_write16(cpu, ps, po, 0); cpu->ax = 1;
+    } else if (act == 17 || act == 15) {    /* set screen saver state: refuse politely */
+        cpu->ax = 1;
+    }
+    b_ret(cpu, 10);
+}
+
+void USER_REDRAWWINDOW(CPU *cpu) {          /* (hwnd@8, lprcUpdate@4/6, hrgnUpdate@2, flags@0) */
+    HWND h = get_hwnd(b_a16(cpu, 8));
+    if (h) InvalidateRect(h, NULL, FALSE);
+    cpu->ax = 1;
+    b_ret(cpu, 10);
+}
+
+/* GetWindowPlacement(hwnd@4, lpwndpl@0/2). Win16 WINDOWPLACEMENT is all
+   16-bit: length, flags, showCmd, ptMin, ptMax, rcNormal = 22 bytes. */
+void USER_GETWINDOWPLACEMENT(CPU *cpu) {
+    HWND h = get_hwnd(b_a16(cpu, 4));
+    uint16_t o = b_a16(cpu, 0), s = b_a16(cpu, 2);
+    WINDOWPLACEMENT wp = { sizeof wp };
+    if (!h || !s || !GetWindowPlacement(h, &wp)) { cpu->ax = 0; b_ret(cpu, 6); return; }
+    mem_write16(cpu, s, o, 22);
+    mem_write16(cpu, s, (uint16_t)(o + 2), (uint16_t)wp.flags);
+    mem_write16(cpu, s, (uint16_t)(o + 4), (uint16_t)wp.showCmd);
+    mem_write16(cpu, s, (uint16_t)(o + 6), (uint16_t)wp.ptMinPosition.x);
+    mem_write16(cpu, s, (uint16_t)(o + 8), (uint16_t)wp.ptMinPosition.y);
+    mem_write16(cpu, s, (uint16_t)(o + 10), (uint16_t)wp.ptMaxPosition.x);
+    mem_write16(cpu, s, (uint16_t)(o + 12), (uint16_t)wp.ptMaxPosition.y);
+    b_rect_write(cpu, s, (uint16_t)(o + 14), &wp.rcNormalPosition);
+    cpu->ax = 1;
+    b_ret(cpu, 6);
+}
+
+/* CreateWindowEx takes CreateWindow's arguments with dwExStyle first -- i.e.
+   deepest on the stack -- so the rest sit exactly where CreateWindow reads
+   them. Run it, then drop the extra DWORD. */
+void USER_CREATEWINDOWEX(CPU *cpu) {
+    USER_CREATEWINDOW(cpu);
+    cpu->sp = (uint16_t)(cpu->sp + 4);
+}
+
+/* ---- menus: guest handles only. The recomp's windows have no host menu bar
+   (the engines draw their own), so a menu is bookkeeping the guest can build
+   and query, not something shown. */
+static uint16_t g_nmenu = 0x100;
+void USER_LOADMENU(CPU *cpu)        { cpu->ax = g_nmenu++; b_ret(cpu, 6); }
+void USER_CREATEPOPUPMENU(CPU *cpu) { cpu->ax = g_nmenu++; b_ret(cpu, 0); }
+void USER_CREATEMENU(CPU *cpu)      { cpu->ax = g_nmenu++; b_ret(cpu, 0); }
+void USER_DESTROYMENU(CPU *cpu)     { cpu->ax = 1; b_ret(cpu, 2); }
+void USER_GETMENU(CPU *cpu)         { cpu->ax = 0; b_ret(cpu, 2); }
+void USER_GETSUBMENU(CPU *cpu)      { cpu->ax = g_nmenu++; b_ret(cpu, 4); }
+void USER_INSERTMENU(CPU *cpu)      { cpu->ax = 1; b_ret(cpu, 12); }
+void USER_ENABLEMENUITEM(CPU *cpu)  { cpu->ax = 0; b_ret(cpu, 6); }   /* previous: enabled */
+
+/* ---- scroll bars: none exist, so each is permanently at 0 of 0..0 ---- */
+void USER_GETSCROLLPOS(CPU *cpu)    { cpu->ax = 0; b_ret(cpu, 4); }
+void USER_SETSCROLLPOS(CPU *cpu)    { cpu->ax = 0; b_ret(cpu, 8); }
+void USER_SETSCROLLRANGE(CPU *cpu)  { b_ret(cpu, 10); }
+void USER_ENABLESCROLLBAR(CPU *cpu) { cpu->ax = 1; b_ret(cpu, 6); }
+
+void USER_UNREGISTERCLASS(CPU *cpu) { cpu->ax = 1; b_ret(cpu, 6); }
+void USER_WINHELP(CPU *cpu)         { cpu->ax = 1; b_ret(cpu, 12); }  /* no help viewer */
+
+/* ---- dialogs. Controls are not materialised (see dlg_build); their state
+   lives in the same store as their text, so it round-trips. */
+void USER_ISDIALOGMESSAGE(CPU *cpu) { cpu->ax = 0; b_ret(cpu, 6); }  /* not a dialog message */
+
+static void dlg_check_set(uint16_t hdlg, uint16_t id, int state) {
+    DlgText *t = dlgtxt(hdlg, id, 1);
+    if (t) { t->text[0] = (char)('0' + state); t->text[1] = 0; }
+}
+void USER_CHECKDLGBUTTON(CPU *cpu) {        /* (hDlg@4, nIDButton@2, uCheck@0) */
+    dlg_check_set(b_a16(cpu, 4), b_a16(cpu, 2), b_a16(cpu, 0) ? 1 : 0);
+    b_ret(cpu, 6);
+}
+void USER_CHECKRADIOBUTTON(CPU *cpu) {      /* (hDlg@6, first@4, last@2, check@0) */
+    uint16_t d = b_a16(cpu, 6), first = b_a16(cpu, 4), last = b_a16(cpu, 2), on = b_a16(cpu, 0);
+    for (uint16_t id = first; id <= last && id >= first; id++) dlg_check_set(d, id, id == on);
+    b_ret(cpu, 8);
+}
+void USER_ISDLGBUTTONCHECKED(CPU *cpu) {    /* (hDlg@2, nIDButton@0) */
+    DlgText *t = dlgtxt(b_a16(cpu, 2), b_a16(cpu, 0), 0);
+    cpu->ax = (uint16_t)(t && t->text[0] == '1');
+    b_ret(cpu, 4);
+}
+void USER_SETDLGITEMINT(CPU *cpu) {         /* (hDlg@6, nID@4, uValue@2, bSigned@0) */
+    DlgText *t = dlgtxt(b_a16(cpu, 6), b_a16(cpu, 4), 1);
+    if (t) snprintf(t->text, sizeof t->text, b_a16(cpu, 0) ? "%d" : "%u",
+                    b_a16(cpu, 0) ? (int)(int16_t)b_a16(cpu, 2) : (int)b_a16(cpu, 2));
+    b_ret(cpu, 8);
+}
+/* SendDlgItemMessage(hDlg@10, nID@8, msg@6, wParam@4, lParam@0/2): no control
+   to receive it. 0 is "nothing selected / no text", the state of a new one. */
+void USER_SENDDLGITEMMESSAGE(CPU *cpu) { cpu->ax = 0; cpu->dx = 0; b_ret(cpu, 12); }
+
+/* DialogBox(hInst, lpTemplate, hWndParent, lpDialogFunc) is DialogBoxParam
+   without the trailing lParam. Slide the return frame down two words and put a
+   0 lParam where it was, and the stack is exactly DialogBoxParam's. */
+void USER_DIALOGBOX(CPU *cpu) {
+    uint16_t ip = mem_read16(cpu, cpu->ss, cpu->sp);
+    uint16_t cs = mem_read16(cpu, cpu->ss, (uint16_t)(cpu->sp + 2));
+    cpu->sp = (uint16_t)(cpu->sp - 4);
+    mem_write16(cpu, cpu->ss, cpu->sp, ip);
+    mem_write16(cpu, cpu->ss, (uint16_t)(cpu->sp + 2), cs);
+    mem_write16(cpu, cpu->ss, (uint16_t)(cpu->sp + 4), 0);
+    mem_write16(cpu, cpu->ss, (uint16_t)(cpu->sp + 6), 0);
+    USER_DIALOGBOXPARAM(cpu);
+}
+
+/* ---- GDI ---- */
+void GDI_GETBKMODE(CPU *cpu) {              /* (hdc@0) */
+    uint16_t g = b_a16(cpu, 0);
+    HDC dc = wing_is_dc(g) ? wing_state_dc(cpu, g) : get_hdc(g);
+    cpu->ax = (uint16_t)(dc ? GetBkMode(dc) : OPAQUE);
+    b_ret(cpu, 2);
+}
+
+/* CreateFont(h@28, w@26, esc@24, orient@22, weight@20, italic@18, underline@16,
+   strikeout@14, charset@12, outprec@10, clipprec@8, quality@6, pitch@4, face@0/2) */
+void GDI_CREATEFONT(CPU *cpu) {
+    char face[LF_FACESIZE] = "";
+    uint16_t fo = b_a16(cpu, 0), fs = b_a16(cpu, 2);
+    if (fs) b_asciiz(cpu, fs, fo, face, sizeof face);
+    HFONT f = CreateFontA((int16_t)b_a16(cpu, 28), (int16_t)b_a16(cpu, 26),
+                          (int16_t)b_a16(cpu, 24), (int16_t)b_a16(cpu, 22),
+                          (int16_t)b_a16(cpu, 20), (BYTE)b_a16(cpu, 18), (BYTE)b_a16(cpu, 16),
+                          (BYTE)b_a16(cpu, 14), (BYTE)b_a16(cpu, 12), (BYTE)b_a16(cpu, 10),
+                          (BYTE)b_a16(cpu, 8), (BYTE)b_a16(cpu, 6), (BYTE)b_a16(cpu, 4), face);
+    cpu->ax = put_hgdi(f);
+    b_ret(cpu, 30);
+}
+
+/* GetTextMetrics(hdc@4, lptm@0/2). Win16 TEXTMETRIC: eight ints, nine bytes,
+   three ints -- 31 bytes. */
+void GDI_GETTEXTMETRICS(CPU *cpu) {
+    uint16_t g = b_a16(cpu, 4), o = b_a16(cpu, 0), s = b_a16(cpu, 2);
+    HDC dc = wing_is_dc(g) ? wing_state_dc(cpu, g) : get_hdc(g);
+    TEXTMETRICA tm; memset(&tm, 0, sizeof tm);
+    int ok = dc && GetTextMetricsA(dc, &tm);
+    if (ok && s) {
+        const int16_t w[8] = { (int16_t)tm.tmHeight, (int16_t)tm.tmAscent, (int16_t)tm.tmDescent,
+            (int16_t)tm.tmInternalLeading, (int16_t)tm.tmExternalLeading,
+            (int16_t)tm.tmAveCharWidth, (int16_t)tm.tmMaxCharWidth, (int16_t)tm.tmWeight };
+        for (int i = 0; i < 8; i++) mem_write16(cpu, s, (uint16_t)(o + 2 * i), (uint16_t)w[i]);
+        const uint8_t b[9] = { tm.tmItalic, tm.tmUnderlined, tm.tmStruckOut, tm.tmFirstChar,
+            tm.tmLastChar, tm.tmDefaultChar, tm.tmBreakChar, tm.tmPitchAndFamily, tm.tmCharSet };
+        for (int i = 0; i < 9; i++) mem_write8(cpu, s, (uint16_t)(o + 16 + i), b[i]);
+        mem_write16(cpu, s, (uint16_t)(o + 25), (uint16_t)tm.tmOverhang);
+        mem_write16(cpu, s, (uint16_t)(o + 27), (uint16_t)tm.tmDigitizedAspectX);
+        mem_write16(cpu, s, (uint16_t)(o + 29), (uint16_t)tm.tmDigitizedAspectY);
+    }
+    cpu->ax = (uint16_t)ok;
+    b_ret(cpu, 6);
+}
+
+/* Current position per guest DC. A WinG surface's host DC is set up afresh
+   for each drawing call (wing_draw_begin), so GDI cannot remember it there. */
+static POINT g_curpos[MAXH];
+
+static uint32_t move_to(uint16_t g, int x, int y) {
+    POINT old = { 0, 0 };
+    if (g < MAXH) { old = g_curpos[g]; g_curpos[g].x = x; g_curpos[g].y = y; }
+    return ((uint32_t)(uint16_t)old.y << 16) | (uint16_t)old.x;
+}
+void GDI_MOVETO(CPU *cpu) {                 /* (hdc@4, x@2, y@0) -> DWORD old (y:x) */
+    uint32_t r = move_to(b_a16(cpu, 4), (int16_t)b_a16(cpu, 2), (int16_t)b_a16(cpu, 0));
+    cpu->ax = (uint16_t)r; cpu->dx = (uint16_t)(r >> 16);
+    b_ret(cpu, 6);
+}
+void GDI_MOVETOEX(CPU *cpu) {               /* (hdc@8, x@6, y@4, lpPoint@0/2) */
+    uint32_t r = move_to(b_a16(cpu, 8), (int16_t)b_a16(cpu, 6), (int16_t)b_a16(cpu, 4));
+    uint16_t o = b_a16(cpu, 0), s = b_a16(cpu, 2);
+    if (s) { mem_write16(cpu, s, o, (uint16_t)r); mem_write16(cpu, s, (uint16_t)(o + 2), (uint16_t)(r >> 16)); }
+    cpu->ax = 1;
+    b_ret(cpu, 10);
+}
+void GDI_LINETO(CPU *cpu) {                 /* (hdc@4, x@2, y@0) */
+    uint16_t g = b_a16(cpu, 4);
+    int x = (int16_t)b_a16(cpu, 2), y = (int16_t)b_a16(cpu, 0);
+    POINT a = g < MAXH ? g_curpos[g] : (POINT){ 0, 0 };
+    RECT r = { a.x < x ? a.x : x, a.y < y ? a.y : y, (a.x > x ? a.x : x) + 1, (a.y > y ? a.y : y) + 1 };
+    RECT used = r; int wing = 0;
+    HDC dc = draw_dc(cpu, g, r, &used, &wing);
+    if (dc) { MoveToEx(dc, a.x, a.y, NULL); LineTo(dc, x, y); }
+    if (dc && wing) wing_draw_end(cpu, g, &used);
+    move_to(g, x, y);
+    cpu->ax = (uint16_t)(dc != NULL);
+    b_ret(cpu, 6);
+}
+
+void GDI_SETVIEWPORTORG(CPU *cpu) {         /* (hdc@4, x@2, y@0) -> DWORD old (y:x) */
+    uint16_t g = b_a16(cpu, 4);
+    HDC dc = wing_is_dc(g) ? wing_state_dc(cpu, g) : get_hdc(g);
+    POINT old = { 0, 0 };
+    if (dc) SetViewportOrgEx(dc, (int16_t)b_a16(cpu, 2), (int16_t)b_a16(cpu, 0), &old);
+    cpu->ax = (uint16_t)old.x; cpu->dx = (uint16_t)old.y;
+    b_ret(cpu, 6);
+}
+
+/* A Win16 BITMAPINFO in guest memory as a host copy: the 40-byte header plus
+   the colour table (2 bytes per entry for DIB_PAL_COLORS, 4 for RGB). */
+static BITMAPINFO *bmi_copy(CPU *cpu, uint16_t seg, uint16_t off, UINT usage) {
+    uint8_t *p = b_flat(cpu, seg, off, sizeof(BITMAPINFOHEADER));
+    if (!p) return NULL;
+    BITMAPINFOHEADER h; memcpy(&h, p, sizeof h);
+    uint32_t ncol = h.biClrUsed ? h.biClrUsed : (h.biBitCount <= 8 ? 1u << h.biBitCount : 0);
+    uint32_t tbl = ncol * (usage == DIB_PAL_COLORS ? 2 : 4);
+    if (h.biCompression == BI_BITFIELDS) tbl = 12;
+    size_t n = sizeof(BITMAPINFOHEADER) + tbl;
+    BITMAPINFO *bi = calloc(1, n + 16);
+    uint8_t *src = b_flat(cpu, seg, off, (uint32_t)n);
+    if (bi && src) memcpy(bi, src, n);
+    return bi;
+}
+static uint32_t dib_bytes(const BITMAPINFOHEADER *h) {
+    uint32_t stride = ((uint32_t)h->biWidth * h->biBitCount + 31) / 32 * 4;
+    return stride * (uint32_t)(h->biHeight < 0 ? -h->biHeight : h->biHeight);
+}
+
+/* CreateDIBitmap(hdc@18, lpbmih@14/16, fdwInit@10/12, lpbInit@6/8, lpbmi@2/4, fuUsage@0) */
+void GDI_CREATEDIBITMAP(CPU *cpu) {
+    HDC dc = get_hdc(b_a16(cpu, 18));
+    UINT usage = b_a16(cpu, 0);
+    BITMAPINFO *hdr = bmi_copy(cpu, b_a16(cpu, 16), b_a16(cpu, 14), usage);
+    BITMAPINFO *bmi = b_a16(cpu, 4) ? bmi_copy(cpu, b_a16(cpu, 4), b_a16(cpu, 2), usage) : NULL;
+    DWORD init = b_a32(cpu, 10);
+    const void *bits = NULL;
+    if (init && bmi) bits = b_flat(cpu, b_a16(cpu, 8), b_a16(cpu, 6), dib_bytes(&bmi->bmiHeader));
+    HDC screen = dc ? dc : GetDC(NULL);
+    HBITMAP hb = hdr ? CreateDIBitmap(screen, &hdr->bmiHeader, bits ? CBM_INIT : 0, bits, bmi, usage) : NULL;
+    if (!dc) ReleaseDC(NULL, screen);
+    free(hdr); free(bmi);
+    cpu->ax = put_hgdi(hb);
+    b_ret(cpu, 20);
+}
+
+/* GetDIBits(hdc@16, hbm@14, uStartScan@12, cScanLines@10, lpvBits@6/8, lpbi@2/4, uUsage@0) */
+void GDI_GETDIBITS(CPU *cpu) {
+    HDC dc = get_hdc(b_a16(cpu, 16));
+    HBITMAP hb = (HBITMAP)get_hgdi(b_a16(cpu, 14));
+    UINT start = b_a16(cpu, 12), lines = b_a16(cpu, 10), usage = b_a16(cpu, 0);
+    uint16_t bo = b_a16(cpu, 6), bs = b_a16(cpu, 8), io = b_a16(cpu, 2), is = b_a16(cpu, 4);
+    BITMAPINFO *bi = calloc(1, sizeof(BITMAPINFOHEADER) + 256 * 4 + 16);
+    uint8_t *gi = b_flat(cpu, is, io, sizeof(BITMAPINFOHEADER));
+    int r = 0;
+    if (bi && gi && hb) {
+        memcpy(bi, gi, sizeof(BITMAPINFOHEADER));
+        HDC screen = dc ? dc : GetDC(NULL);
+        void *bits = NULL;
+        if (bs) {
+            r = GetDIBits(screen, hb, start, lines, NULL, bi, usage);   /* fills sizes */
+            bits = b_flat(cpu, bs, bo, dib_bytes(&bi->bmiHeader));
+            memcpy(bi, gi, sizeof(BITMAPINFOHEADER));
+        }
+        r = GetDIBits(screen, hb, start, lines, bits, bi, usage);
+        if (!dc) ReleaseDC(NULL, screen);
+        uint32_t ncol = bi->bmiHeader.biBitCount <= 8 ? 1u << bi->bmiHeader.biBitCount : 0;
+        uint8_t *go = b_flat(cpu, is, io, sizeof(BITMAPINFOHEADER) + ncol * 4);
+        if (go) memcpy(go, bi, sizeof(BITMAPINFOHEADER) + ncol * (usage == DIB_PAL_COLORS ? 2 : 4));
+    }
+    free(bi);
+    cpu->ax = (uint16_t)r;
+    b_ret(cpu, 18);
+}
+
+/* StretchDIBits(hdc@30, xD@28, yD@26, wD@24, hD@22, xS@20, yS@18, wS@16, hS@14,
+                 lpBits@10/12, lpbmi@6/8, usage@4, rop@0/2) */
+void GDI_STRETCHDIBITS(CPU *cpu) {
+    uint16_t g = b_a16(cpu, 30);
+    int xd = (int16_t)b_a16(cpu, 28), yd = (int16_t)b_a16(cpu, 26);
+    int wd = (int16_t)b_a16(cpu, 24), hd = (int16_t)b_a16(cpu, 22);
+    int xs = (int16_t)b_a16(cpu, 20), ys = (int16_t)b_a16(cpu, 18);
+    int ws = (int16_t)b_a16(cpu, 16), hs = (int16_t)b_a16(cpu, 14);
+    UINT usage = b_a16(cpu, 4); DWORD rop = b_a32(cpu, 0);
+    BITMAPINFO *bi = bmi_copy(cpu, b_a16(cpu, 8), b_a16(cpu, 6), usage);
+    const void *bits = bi ? b_flat(cpu, b_a16(cpu, 12), b_a16(cpu, 10), dib_bytes(&bi->bmiHeader)) : NULL;
+    RECT r = { xd < xd + wd ? xd : xd + wd, yd < yd + hd ? yd : yd + hd,
+               xd > xd + wd ? xd : xd + wd, yd > yd + hd ? yd : yd + hd };
+    RECT used = r; int wing = 0;
+    HDC dc = (bi && bits) ? draw_dc(cpu, g, r, &used, &wing) : NULL;
+    int n = dc ? StretchDIBits(dc, xd, yd, wd, hd, xs, ys, ws, hs, bits, bi, usage, rop) : 0;
+    if (dc && wing) wing_draw_end(cpu, g, &used);
+    free(bi);
+    cpu->ax = (uint16_t)n;
+    b_ret(cpu, 32);
+}

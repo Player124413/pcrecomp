@@ -546,6 +546,7 @@ uint16_t recomp_dgroup_of_seg(uint16_t seg)
  * a handle this image did not load (a resource-only DLL, say). */
 const RecompModule *recomp_module_of_hinst(uint16_t hinst)
 {
+    hinst = recomp_hinst_unalias(hinst);
     for (int i = 0; i < RECOMP_NUM_MODULES; i++)
         if (RECOMP_MODULES[i].dgroup == hinst)
             return &RECOMP_MODULES[i];
@@ -571,8 +572,29 @@ static void dispatch_miss(CPU *cpu, uint16_t seg, uint16_t off, int far_call)
     cpu->sp = (uint16_t)(cpu->sp + (far_call ? 4 : 2));
 }
 
+/* Host thunks: native functions behind guest far pointers. Segment 0xFFF0 is
+ * past any lifted numbering and never a real selector the runtime hands out. */
+#define RECOMP_HOST_SEG 0xFFF0u
+static struct { void (*fn)(CPU *, uint16_t); uint16_t arg; } g_thunks[256];
+static int g_nthunks;
+
+uint32_t recomp_host_thunk(void (*fn)(CPU *cpu, uint16_t arg), uint16_t arg)
+{
+    for (int i = 0; i < g_nthunks; i++)          /* the same (fn, arg) is one pointer */
+        if (g_thunks[i].fn == fn && g_thunks[i].arg == arg)
+            return (RECOMP_HOST_SEG << 16) | (uint32_t)i;
+    if (g_nthunks == 256) return 0;
+    g_thunks[g_nthunks].fn = fn;
+    g_thunks[g_nthunks].arg = arg;
+    return (RECOMP_HOST_SEG << 16) | (uint32_t)g_nthunks++;
+}
+
 void dispatch_far(CPU *cpu, uint16_t seg, uint16_t off)
 {
+    if (seg == RECOMP_HOST_SEG && off < g_nthunks) {
+        g_thunks[off].fn(cpu, g_thunks[off].arg);
+        return;
+    }
     if (!recomp_dispatch_lookup(cpu, seg, off)) dispatch_miss(cpu, seg, off, 1);
 }
 

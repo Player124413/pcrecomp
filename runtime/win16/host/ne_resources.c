@@ -23,7 +23,8 @@ typedef struct {
 } Res;
 
 typedef struct {
-    char      name[16];     /* upper, no extension, e.g. "CATZDLL"               */
+    char      path[512];    /* host file it was read from (AccessResource)          */
+    char      name[64];     /* upper; no extension, or the file name if loaded by path */
     uint16_t  hinst;        /* assigned instance handle                          */
     uint8_t  *data;
     long      size;
@@ -33,7 +34,7 @@ typedef struct {
     int       nres;
 } Mod;
 
-static Mod g_mods[16];
+static Mod g_mods[48];     /* lifted modules + LoadLibrary'd resource DLLs (Oddballz: 8 + 14 eggs) */
 static int g_nmods;
 
 static struct { Mod *m; Res *r; } g_found[512];
@@ -112,13 +113,22 @@ static int parse_ne(Mod *m) {
     return 1;
 }
 
-static Mod *register_mod(const char *base, uint16_t hinst) {
-    /* The base name is the file's, extension dropped: a host is as likely to
-       be a .WAD or .EXE as a library is a .DLL. */
+static Mod *register_mod(const char *base, uint16_t hinst, const char *file) {
+    /* `file` is the exact name when the caller knows it (a lifted module, from
+       RECOMP_MODULES). LoadLibrary only has a base name, so probe extensions:
+       a host is as likely to be a .WAD or .EXE as a library is a .DLL. Probing
+       for a module we DO know picked ODDBALLZ.EXE, the launcher, over
+       ODDBALLZ.WAD, the game. */
     static const char *const EXTS[] = { "DLL", "EXE", "WAD", "DRV" };
     char path[512];
     FILE *f = NULL;
-    for (unsigned k = 0; !f && k < sizeof EXTS / sizeof EXTS[0]; k++) {
+    if (file) {                         /* absolute host path, or relative to the game */
+        int abs = file[0] == '/' || file[0] == '\\' || (file[0] && file[1] == ':');
+        if (abs) snprintf(path, sizeof path, "%s", file);
+        else     snprintf(path, sizeof path, "%s/%s", RECOMP_GAME_DIR, file);
+        f = fopen(path, "rb");
+    }
+    for (unsigned k = 0; !f && !file && k < sizeof EXTS / sizeof EXTS[0]; k++) {
         snprintf(path, sizeof path, "%s/%s.%s", RECOMP_GAME_DIR, base, EXTS[k]);
         f = fopen(path, "rb");
     }
@@ -129,6 +139,7 @@ static Mod *register_mod(const char *base, uint16_t hinst) {
     if (fread(m->data, 1, m->size, f) != (size_t)m->size) { fclose(f); free(m->data); return NULL; }
     fclose(f);
     snprintf(m->name, sizeof m->name, "%s", base);
+    snprintf(m->path, sizeof m->path, "%s", path);
     m->hinst = hinst;
     if (!parse_ne(m)) { fprintf(stderr, "[ne] %s: NE parse failed\n", base); free(m->data); return NULL; }
     fprintf(stderr, "[ne] loaded %s (hinst=%04X, %d resources)\n", base, hinst, m->nres);
@@ -188,13 +199,14 @@ void ne_init(void) {
         snprintf(base, sizeof base, "%s", RECOMP_MODULES[i].file);
         char *dot = strrchr(base, '.');
         if (dot) *dot = 0;
-        Mod *m = register_mod(base, RECOMP_MODULES[i].dgroup);
+        Mod *m = register_mod(base, RECOMP_MODULES[i].dgroup, RECOMP_MODULES[i].file);
         if (m && recomp_game.resource_tags) scan_tagmap(m);
     }
     fprintf(stderr, "[ne] tag map: %d (tag,id)->type records\n", g_ntag);
 }
 
 static Mod *mod_by_hinst(uint16_t hinst) {
+    hinst = recomp_hinst_unalias(hinst);
     for (int i = 0; i < g_nmods; i++) if (g_mods[i].hinst == hinst) return &g_mods[i];
     return NULL;
 }
@@ -212,17 +224,28 @@ static void normalize(const char *in, char *out, int outsz) {
     out[i] = 0;
 }
 
-uint16_t ne_loadlib(const char *name) {
+uint16_t ne_loadlib(const char *name, const char *hostpath) {
     ne_init();
     char base[64];
     normalize(name, base, sizeof base);
     if (base[0] == 0) return 0;
+    if (hostpath) {
+        /* A module loaded by path is known by its file name WITH extension:
+           Oddballz ships DYNAROO.ODD and DYNAROO.ODX side by side, and by base
+           name alone the second load would hand back the first. */
+        const char *leaf = hostpath;
+        for (const char *q = hostpath; *q; q++) if (*q == '/' || *q == '\\') leaf = q + 1;
+        int i = 0;
+        for (; leaf[i] && i < (int)sizeof base - 1; i++)
+            base[i] = (char)((leaf[i] >= 'a' && leaf[i] <= 'z') ? leaf[i] - 32 : leaf[i]);
+        base[i] = 0;
+    }
     for (int i = 0; i < g_nmods; i++)
-        if (strcmp(g_mods[i].name, base) == 0) return g_mods[i].hinst;
+        if (strcmp(g_mods[i].name, base) == 0) return recomp_hinst_alias(g_mods[i].hinst);
     /* Only serve modules that actually ship as game NE files we can parse. */
     if (g_nmods < (int)(sizeof g_mods / sizeof g_mods[0])) {
         uint16_t hinst = (uint16_t)(0xF000 + g_nmods);
-        Mod *m = register_mod(base, hinst);
+        Mod *m = register_mod(base, hinst, hostpath);
         if (m) return m->hinst;
     }
     return 0;
@@ -252,11 +275,21 @@ static int load_string_from(Mod *m, uint16_t id, char *out, int max) {
     return 0;
 }
 
+/* On Windows a module answers LoadString/FindResource only for itself. Catz's
+ * engine passes the wrong module's handle for some lookups, so a game can opt
+ * into searching the lifted modules when its own misses
+ * (recomp_game.resource_fallback). Never for a DLL LoadLibrary'd at run time
+ * (handles 0xF000 up), and never by default: on Oddballz, falling back handed
+ * its eggs other modules' strings ("Exit", "Fear") as bitmap names. */
+static int no_fallback(const Mod *m) {
+    return !recomp_game.resource_fallback || (m && m->hinst >= 0xF000);
+}
+
 int ne_load_string(uint16_t hinst, uint16_t id, char *out, int max) {
     ne_init();
     Mod *m = mod_by_hinst(hinst);
     int n = m ? load_string_from(m, id, out, max) : 0;
-    if (n) return n;
+    if (n || no_fallback(m)) return n;
     /* Fall back to any module: the engine sometimes passes the app (WAD)
      * instance for strings that actually live in CATZDLL, and vice-versa. */
     for (int i = 0; i < g_nmods; i++) {
@@ -283,9 +316,56 @@ static uint16_t register_found(Mod *m, Res *r) {
     return (uint16_t)(++g_nfound);                /* HRSRC = index+1 */
 }
 
+/* RT_NAMETABLE (type 15): Windows 3.0's map from string names to the integer
+ * type/id a resource was compiled under. Entries are
+ *     WORD cb; WORD type; WORD id; char type_name[]; char name[];
+ * with 0x8000 set on an ordinal type/id, and cb == 0 ending the table.
+ * FindResource(h, "DI", "TAG") on an Oddballz egg means type 0xFF0A id 1 by
+ * way of exactly this. Returns 1 and rewrites the query when an entry matches. */
+static int nametable(Mod *m, int *ti, const char **ts, int *ni, const char **ns) {
+    for (int i = 0; i < m->nres; i++) {
+        Res *r = &m->res[i];
+        if (r->type_int != 15) continue;
+        uint32_t p = r->off, end = r->off + r->len;
+        while (p + 6 < end && p + 6 < (uint32_t)m->size) {
+            uint16_t cb = rd16(m->data + p);
+            if (cb < 6 || p + cb > end) break;
+            uint16_t et = rd16(m->data + p + 2), ei = rd16(m->data + p + 4);
+            const char *etn = (const char *)m->data + p + 6;
+            const char *enm = etn + strnlen(etn, cb - 6) + 1;
+            int tok = *ts ? ieq(etn, *ts) : (*ti == (et & 0x7FFF));
+            int nok = *ns ? ((const uint8_t *)enm < m->data + p + cb && ieq(enm, *ns))
+                          : (*ni == (ei & 0x7FFF));
+            if (tok && nok) {
+                *ti = et & 0x7FFF; *ts = NULL;
+                *ni = ei & 0x7FFF; *ns = NULL;
+                return 1;
+            }
+            p += cb;
+        }
+    }
+    return 0;
+}
+
+/* A resource of this module by the query as given, else by its name table. */
+static uint16_t find_in(Mod *m, int ti, const char *ts, int ni, const char *ns) {
+    for (int i = 0; i < m->nres; i++)
+        if (res_matches(&m->res[i], ti, ts, ni, ns))
+            return register_found(m, &m->res[i]);
+    if ((ts || ns) && nametable(m, &ti, &ts, &ni, &ns))
+        for (int i = 0; i < m->nres; i++)
+            if (res_matches(&m->res[i], ti, ts, ni, ns))
+                return register_found(m, &m->res[i]);
+    return 0;
+}
+
 uint16_t ne_find_resource(uint16_t hinst, int type_int, const char *type_str,
                           int name_int, const char *name_str) {
     ne_init();
+    /* "#123" is how Win16 spells integer ID 123 as a string (the RC compiler
+       and MAKEINTRESOURCE both produce it); Dogz asks for type "#123". */
+    if (type_int < 0 && type_str && type_str[0] == '#') { type_int = atoi(type_str + 1); type_str = NULL; }
+    if (name_int < 0 && name_str && name_str[0] == '#') { name_int = atoi(name_str + 1); name_str = NULL; }
     /* Resolve a Petz 4-char tag ("APTF","PALT",...) to its real NE int type via
      * the (tag,id) table, since resources are stored under int types not the tag. */
     if (type_int < 0 && type_str && name_int >= 0) {
@@ -293,21 +373,21 @@ uint16_t ne_find_resource(uint16_t hinst, int type_int, const char *type_str,
         if (t >= 0) { type_int = t; type_str = NULL; }
     }
     Mod *m = mod_by_hinst(hinst);
-    if (m) {
-        for (int i = 0; i < m->nres; i++)
-            if (res_matches(&m->res[i], type_int, type_str, name_int, name_str))
-                return register_found(m, &m->res[i]);
-    }
+    uint16_t h = m ? find_in(m, type_int, type_str, name_int, name_str) : 0;
     /* The engine sometimes passes hInst=0 / the wrong module's handle (the real
      * resource handle does not always propagate cross-module yet). Fall back to
      * searching every loaded module. */
-    for (int j = 0; j < g_nmods; j++) {
-        if (&g_mods[j] == m) continue;
-        for (int i = 0; i < g_mods[j].nres; i++)
-            if (res_matches(&g_mods[j].res[i], type_int, type_str, name_int, name_str))
-                return register_found(&g_mods[j], &g_mods[j].res[i]);
-    }
-    return 0;
+    for (int j = 0; !h && !no_fallback(m) && j < g_nmods; j++)
+        if (&g_mods[j] != m)
+            h = find_in(&g_mods[j], type_int, type_str, name_int, name_str);
+    return h;
+}
+
+int ne_resource_file(uint16_t hrsrc, char *path, int pathsz, uint32_t *off) {
+    if (hrsrc == 0 || hrsrc > g_nfound) return 0;
+    snprintf(path, pathsz, "%s", g_found[hrsrc - 1].m->path);
+    *off = g_found[hrsrc - 1].r->off;
+    return 1;
 }
 
 const uint8_t *ne_resource_bytes(uint16_t hrsrc, uint32_t *out_len) {
@@ -317,6 +397,58 @@ const uint8_t *ne_resource_bytes(uint16_t hrsrc, uint32_t *out_len) {
     if (r->off + r->len > (uint32_t)m->size) return NULL;
     if (out_len) *out_len = r->len;
     return m->data + r->off;
+}
+
+/* GetProcAddress for a module that was lifted into this image. The entry table
+ * gives (segment, offset) in the module's own numbering; the lifted code calls
+ * it at (first_seg - 1 + segment, offset), which is the far pointer the guest
+ * must get back. Oddballz LoadLibrary's its intro DLL and calls through the
+ * pointers this returns -- 0 sent it through a null far pointer into abort. */
+int ne_proc_address(uint16_t hinst, const char *name, int ordinal,
+                    uint16_t *seg, uint16_t *off) {
+    ne_init();
+    Mod *m = mod_by_hinst(hinst);
+    const RecompModule *rm = recomp_module_of_hinst(hinst);
+    if (!m || !rm) return 0;
+    const uint8_t *d = m->data;
+    if (name) {                                 /* name -> ordinal: resident, then non-resident */
+        uint32_t tabs[2] = { m->ne + rd16(d + m->ne + 0x26), 0 };
+        uint32_t nonres = (uint32_t)(d[m->ne + 0x2C] | d[m->ne + 0x2D] << 8 |
+                                     d[m->ne + 0x2E] << 16 | (uint32_t)d[m->ne + 0x2F] << 24);
+        tabs[1] = nonres;
+        for (int t = 0; t < 2 && ordinal <= 0; t++) {
+            uint32_t p = tabs[t];
+            if (!p) continue;
+            p += 1u + d[p] + 2u;                /* skip the module-name entry */
+            while (p < (uint32_t)m->size && d[p]) {
+                char nm[128]; int n = d[p];
+                if (n > 127) n = 127;
+                memcpy(nm, d + p + 1, n); nm[n] = 0;
+                if (ieq(nm, name)) { ordinal = rd16(d + p + 1 + d[p]); break; }
+                p += 1u + d[p] + 2u;
+            }
+        }
+    }
+    if (ordinal <= 0) return 0;
+    uint32_t p = m->ne + rd16(d + m->ne + 0x04), end = p + rd16(d + m->ne + 0x06);
+    int ord = 1;
+    while (p < end && d[p]) {
+        int count = d[p], type = d[p + 1];
+        p += 2;
+        if (type == 0) { ord += count; continue; }          /* unused ordinals */
+        for (int i = 0; i < count; i++, ord++) {
+            int s; uint16_t o;
+            if (type == 0xFF) { s = d[p + 3]; o = rd16(d + p + 4); p += 6; }   /* moveable */
+            else              { s = type;     o = rd16(d + p + 1); p += 3; }   /* fixed */
+            if (ord == ordinal) {
+                if (s == 0 || s >= 0xFE) return 0;          /* constant, not code */
+                *seg = (uint16_t)(rm->first_seg - 1 + s);
+                *off = o;
+                return 1;
+            }
+        }
+    }
+    return 0;
 }
 
 /* tiny case-insensitive compare returning 1 on equal (avoid platform strcasecmp) */
