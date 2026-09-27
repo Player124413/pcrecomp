@@ -124,11 +124,13 @@ def main():
 
     py = sys.executable
     run = lambda *a: subprocess.run([py, *a], check=True)
+    # Stubs first: segments.h declares every segNNN_XXXX defined in src/,
+    # and the stubs are definitions the lifted code calls.
+    run(os.path.join(HERE, 'gen_unresolved_stubs.py'), '--src', src,
+        '--out', os.path.join(src, '_unresolved_stubs.c'), '--prefix', args.prefix)
     run(os.path.join(HERE, 'gen_segments_h.py'), '--src', src,
         '--out', os.path.join(rt, 'segments.h'),
         '--max-seg', str(nes[-1].seg_base + len(nes[-1].segments) + (1 if args.stack else 0)))
-    run(os.path.join(HERE, 'gen_unresolved_stubs.py'), '--src', src,
-        '--out', os.path.join(src, '_unresolved_stubs.c'), '--prefix', args.prefix)
     run(os.path.join(HERE, 'gen_dispatch.py'), '--src', src,
         '--out', os.path.join(src, '_dispatch.c'))
     stubs = [os.path.join(HERE, 'gen_win16_stubs.py'), *args.modules,

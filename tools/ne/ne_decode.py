@@ -20,6 +20,7 @@ The code map can also be supplied via the PCRECOMP_IDA_JSON environment
 variable.
 """
 
+import bisect
 import sys
 import os
 import struct
@@ -454,6 +455,19 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
     # ponytail: entry points only. Recovering every un-decoded relative BRANCH
     # target as well was tried on Catz and reverted -- it re-synced through
     # enough data-as-code to mis-split real functions and hung LibMain.
+    # A run decoded from one entry must not swallow another: forced entries can
+    # point into data (a table of far pointers), and the garbage decoded there
+    # ran over a real entry one byte on. Oddballz seg 7: `00 45 55` read as
+    # `add [di+0x55], al` covered 0x427A, the `inc bp` of a far prologue that
+    # IDA's heads also missed, so the function was never lifted and every call
+    # to it missed at run time. Stop short of any entry, the same way the
+    # linear sweep resyncs onto one.
+    entry_set = sorted(a for a in forced_entries if 0 <= a < len(seg.data))
+
+    def straddles(pos, length):
+        i = bisect.bisect_right(entry_set, pos)
+        return i < len(entry_set) and entry_set[i] < pos + length
+
     def recover(addrs, have):
         for off in sorted(a for a in addrs if 0 <= a < len(seg.data) and a not in have):
             decoder.pos = off
@@ -462,7 +476,7 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
                 if pos >= len(seg.data) or pos in have:
                     break
                 inst = decoder.decode_one()
-                if inst is None:
+                if inst is None or straddles(pos, max(inst.length, 1)):
                     break
                 instructions.append(inst)
                 have.update(range(pos, pos + max(inst.length, 1)))

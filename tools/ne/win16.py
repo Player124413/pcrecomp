@@ -493,6 +493,29 @@ _PROTO = {
     'COMMDLG.GETOPENFILENAME': [_D],
     'COMMDLG.GETSAVEFILENAME': [_D],
     'COMMDLG.PRINTDLG': [_D],
+    # ---- first seen in Dogz ----
+    'GDI.MOVETOEX': [_W,_W,_W,_D],                    # hdc, x, y, POINT FAR*
+    # dwExStyle, class, title, dwStyle, x, y, cx, cy, parent, menu, hinst, lpParam
+    'USER.CREATEWINDOWEX': [_D,_D,_D,_D,_W,_W,_W,_W,_W,_W,_W,_D],
+    'USER.GETDLGCTRLID': [_W],
+    'USER.GLOBALADDATOM': [_D],
+    'USER.GLOBALDELETEATOM': [_W],
+    'USER.GLOBALGETATOMNAME': [_W,_D,_W],             # atom, buffer, size
+    # ---- first seen in Oddballz ----
+    'CTL3DV2.CTL3DCOLORCHANGE': [],
+    'CTL3DV2.CTL3DUNREGISTER': [_W],
+    # height, width, escapement, orientation, weight, then eight BYTE flags
+    # (each pushed as a word), then the face name
+    'GDI.CREATEFONT': [_W,_W,_W,_W,_W, _W,_W,_W,_W,_W,_W,_W,_W, _D],
+    'GDI.GETBKMODE': [_W],
+    'KERNEL.DEBUGBREAK': [],
+    'SHELL.REGCREATEKEY': [_D,_D,_D],                  # HKEY, subkey, HKEY FAR*
+    'SHELL.REGSETVALUE': [_D,_D,_D,_D,_D],             # HKEY, subkey, type, data, cb
+    'USER.ENABLESCROLLBAR': [_W,_W,_W],
+    'USER.LOADMENU': [_W,_D],
+    'USER.SHOWCURSOR': [_W],
+    'USER.SUBTRACTRECT': [_D,_D,_D],
+    'USER.UNREGISTERCLASS': [_D,_W],
     # ---- GDI ----
     'GDI.ARC': [_W,_W,_W,_W,_W,_W,_W,_W,_W],
     'GDI.COMBINERGN': [_W,_W,_W,_W],

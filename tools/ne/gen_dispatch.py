@@ -35,7 +35,10 @@ def main():
     out_abs = os.path.abspath(args.out)
     funcs, seen = [], set()
     for path in sorted(glob.glob(os.path.join(args.src, '*.c'))):
-        if os.path.abspath(path) == out_abs:
+        # Only lifted segments: the generated _*.c files hold abort stubs for
+        # calls the decoder could not align, and dispatching into one kills the
+        # run where a miss would have been logged and survived.
+        if os.path.abspath(path) == out_abs or os.path.basename(path).startswith('_'):
             continue
         text = open(path, encoding='utf-8', errors='replace').read()
         for name, seg, off in DEF_RE.findall(text):
