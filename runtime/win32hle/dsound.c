@@ -429,6 +429,21 @@ static void s_DirectSoundEnumerateA(void) {              /* (callback, context):
     RET(DS_OK, 2);
 }
 
+/* CoCreateInstance(CLSID_DirectSound): the object DirectSoundCreate makes;
+ * the caller's IDirectSound::Initialize follows. */
+static uint32_t ds_create(const uint8_t *iid, uint32_t *out) {
+    (void)iid;
+    vtables();
+    if (!audio_open()) { *out = 0; return DSERR_NODRIVER; }
+    *out = hle_com_new(g_vt_ds, 12);
+    return DS_OK;
+}
+void hle_dsound_register_com(void) {
+    static const uint8_t CLSID_DirectSound[16] = { 0x46, 0xD9, 0xD4, 0x47, 0xE8, 0x62, 0xCF, 0x11,
+                                                   0x93, 0xBC, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00 };
+    hle_com_register_class(CLSID_DirectSound, ds_create);
+}
+
 const win32hle_shim win32hle_dsound[] = {
     { "dsound.dll#1", s_DirectSoundCreate }, { "DirectSoundCreate", s_DirectSoundCreate },
     { "dsound.dll#2", s_DirectSoundEnumerateA }, { "DirectSoundEnumerateA", s_DirectSoundEnumerateA },

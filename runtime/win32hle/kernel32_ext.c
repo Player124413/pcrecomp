@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/mman.h>
 #include "win32hle.h"
 
 #define INVALID_HANDLE  0xFFFFFFFFu
@@ -656,7 +657,76 @@ static void k_GetFullPathNameA(void) {
     RET(buf ? (uint32_t)strlen(buf) : (uint32_t)strlen(abs), 4);
 }
 
+/* ---- file mappings ----
+ * CreateFileMappingA keeps the file (a dup of its descriptor) or, for
+ * INVALID_HANDLE_VALUE, only a size: anonymous shared memory. MapViewOfFile
+ * mmaps it; a 32-bit host's address is the guest's. The views are
+ * remembered so UnmapViewOfFile knows their length. */
+typedef struct { int fd; uint64_t size; int writable; } hmapping;
+static void mapping_closer(void *p) { hmapping *m = (hmapping *)p; if (m->fd >= 0) close(m->fd); free(m); }
+static void k_CreateFileMappingA(void) {                 /* (hFile, sa, protect, sizeHigh, sizeLow, name) */
+    static int closer_set;
+    if (!closer_set) hle_handle_set_closer(HLE_H_MAPPING, mapping_closer), closer_set = 1;
+    uint32_t file = A32(0), protect = A32(2);
+    uint64_t size = (uint64_t)A32(3) << 32 | A32(4);
+    int fd = -1;
+    if (file != INVALID_HANDLE) {
+        int f = fd_of(file);
+        struct stat st;
+        if (f < 0 || fstat(f, &st) != 0) { hle_set_last_error(6); RET(0, 6); }   /* ERROR_INVALID_HANDLE */
+        if (!size) size = (uint64_t)st.st_size;
+        fd = dup(f);
+    }
+    if (!size) { hle_set_last_error(1006); RET(0, 6); }    /* ERROR_FILE_INVALID: an empty file */
+    hmapping *m = (hmapping *)malloc(sizeof *m);
+    m->fd = fd, m->size = size, m->writable = (protect & 0x0C) != 0;   /* PAGE_READWRITE | PAGE_WRITECOPY */
+    uint32_t h = hle_handle_alloc(HLE_H_MAPPING, m);
+    if (!h) { mapping_closer(m); RET(0, 6); }
+    hle_set_last_error(0);
+    RET(h, 6);
+}
+#define MAX_VIEWS 64
+static struct { uint32_t addr, len; } g_views[MAX_VIEWS];
+static void k_MapViewOfFile(void) {                      /* (hMap, access, offHigh, offLow, bytes) */
+    hmapping *m = (hmapping *)hle_handle_obj(A32(0), HLE_H_MAPPING);
+    uint64_t off = (uint64_t)A32(2) << 32 | A32(3);
+    if (!m || off >= m->size) { hle_set_last_error(6); RET(0, 5); }
+    uint64_t len = A32(4) ? A32(4) : m->size - off;
+    int copy = A32(1) == 1;                                /* FILE_MAP_COPY */
+    int prot = PROT_READ | (m->writable || copy ? PROT_WRITE : 0);
+    void *p = m->fd < 0 ? mmap(NULL, len, prot, MAP_SHARED | MAP_ANONYMOUS, -1, 0)
+                        : mmap(NULL, len, prot, copy ? MAP_PRIVATE : MAP_SHARED, m->fd, (off_t)off);
+    if (p == MAP_FAILED) { hle_set_last_error(8); RET(0, 5); }   /* ERROR_NOT_ENOUGH_MEMORY */
+    for (int i = 0; i < MAX_VIEWS; i++) if (!g_views[i].addr) { g_views[i].addr = (uint32_t)(uintptr_t)p, g_views[i].len = (uint32_t)len; break; }
+    RET((uint32_t)(uintptr_t)p, 5);
+}
+static void k_UnmapViewOfFile(void) {
+    for (int i = 0; i < MAX_VIEWS; i++)
+        if (g_views[i].addr && g_views[i].addr == A32(0)) {
+            munmap((void *)(uintptr_t)g_views[i].addr, g_views[i].len);
+            g_views[i].addr = 0;
+            RET(1, 1);
+        }
+    RET(0, 1);
+}
+
+/* ---- the process: one CPU of it, and no others to list ---- */
+static void k_GetProcessAffinityMask(void) {             /* (hProcess, &process, &system) */
+    if (A32(1)) MEM32(A32(1)) = 1;
+    if (A32(2)) MEM32(A32(2)) = 1;
+    RET(1, 3);
+}
+static void k_SetProcessAffinityMask(void) { RET(1, 2); }
+static void k_CreateToolhelp32Snapshot(void) { hle_set_last_error(5); RET(INVALID_HANDLE, 2); }   /* ERROR_ACCESS_DENIED */
+static void k_Process32First(void) { hle_set_last_error(18); RET(0, 2); }                     /* ERROR_NO_MORE_FILES */
+static void k_OpenProcess(void) { hle_set_last_error(5); RET(0, 3); }
+
 const win32hle_shim win32hle_kernel32_ext[] = {
+    { "GetProcessAffinityMask", k_GetProcessAffinityMask }, { "SetProcessAffinityMask", k_SetProcessAffinityMask },
+    { "CreateToolhelp32Snapshot", k_CreateToolhelp32Snapshot }, { "Process32First", k_Process32First },
+    { "Process32Next", k_Process32First }, { "OpenProcess", k_OpenProcess },
+    { "CreateFileMappingA", k_CreateFileMappingA }, { "MapViewOfFile", k_MapViewOfFile },
+    { "UnmapViewOfFile", k_UnmapViewOfFile },
     { "GetFullPathNameA", k_GetFullPathNameA },
     { "_lopen", k__lopen }, { "_lcreat", k__lcreat }, { "_lread", k__lread },
     { "_lwrite", k__lwrite }, { "_lclose", k__lclose }, { "_llseek", k__llseek },
