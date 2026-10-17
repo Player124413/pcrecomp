@@ -74,10 +74,18 @@ static uint32_t new_file(int fd) {
 }
 
 /* Device names a Windows program may open that a host has no file for. */
+/* A port is COM1-COM9 or LPT1-LPT9, the whole name before any extension.
+ * Matching the prefix alone took any file named Com... for a serial port:
+ * Civilization III's credits (complete_credits.txt) and WWII in the
+ * Pacific's Commonwealth advisor (commonwealth_all.pcx), which it then
+ * used without checking. */
+static int is_port(const char *b) {
+    return (!strncasecmp(b, "COM", 3) || !strncasecmp(b, "LPT", 3)) && b[3] >= '1' && b[3] <= '9' && (!b[4] || b[4] == '.');
+}
 static int is_device(const char *p, char *host, size_t n) {
     const char *b = p + strlen(p);
     while (b > p && b[-1] != '\\' && b[-1] != '/' && b[-1] != ':') b--;
-    if (!strncmp(p, "\\\\.\\", 4) || !strncasecmp(b, "COM", 3) || !strncasecmp(b, "LPT", 3)) { host[0] = 0; return 1; }
+    if (!strncmp(p, "\\\\.\\", 4) || is_port(b)) { host[0] = 0; return 1; }
     if (!strcasecmp(b, "NUL")) { snprintf(host, n, "/dev/null"); return 1; }
     if (!strcasecmp(b, "CON")) { snprintf(host, n, "/dev/tty"); return 1; }
     return 0;
@@ -499,6 +507,7 @@ static void k_FindFirstFileA(void) {                     /* (pattern, &data) */
             RET(h ? h : INVALID_HANDLE, 2);
         }
         free(f);
+        if (hle_filetrace()) fprintf(stderr, "[file] FindFirstFileA \"%s\": not found\n", pat);
         hle_set_last_error(ERROR_FILE_NOT_FOUND);
         RET(INVALID_HANDLE, 2);
     }
@@ -508,6 +517,7 @@ static void k_FindFirstFileA(void) {                     /* (pattern, &data) */
     if (f->n) qsort(f->names, (size_t)f->n, sizeof *f->names, by_name);
     if (!f->d || !find_next(f, A32(1))) {
         find_closer(f);
+        if (hle_filetrace()) fprintf(stderr, "[file] FindFirstFileA \"%s\": not found\n", pat);
         hle_set_last_error(ERROR_FILE_NOT_FOUND);
         RET(INVALID_HANDLE, 2);
     }

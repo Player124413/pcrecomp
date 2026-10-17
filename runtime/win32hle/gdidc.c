@@ -77,6 +77,10 @@ static volatile unsigned g_win_seq;
 void hle_gdi_window_surface(uint8_t *px, int w, int h, int pitch, int bpp) {
     g_win_px = px, g_win_w = w, g_win_h = h, g_win_pitch = pitch, g_win_bpp = bpp;
     g_win_seq++;
+    /* A window DC the game keeps (Civilization III's jgl holds its own)
+     * follows a mode change: it had been drawing into the old pixels. */
+    for (int i = 0; i < MAX_DC; i++)
+        if (g_dc[i].used && g_dc[i].win) g_dc[i].px = px, g_dc[i].w = w, g_dc[i].h = h, g_dc[i].pitch = pitch, g_dc[i].bpp = bpp;
 }
 uint32_t hle_gdi_window_dc(void) {
     uint32_t d = new_dc();

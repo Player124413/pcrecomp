@@ -81,9 +81,13 @@ typedef struct {
 } asi_t;
 
 /* S32 fetch(U32 user, void *dest, S32 bytes, S32 offset): offset -1 reads on. */
+/* Never past the stream's end: the caller's callback copies what is asked
+ * from its own buffer (Civilization III's sound.dll ran off its end). */
 static int io_read(void *opaque, uint8_t *buf, int n) {
     asi_t *s = (asi_t *)opaque;
     if (n > 65536) n = 65536;
+    if (s->total && s->pos >= s->total) return AVERROR_EOF;
+    if (s->total && (uint32_t)n > s->total - s->pos) n = (int)(s->total - s->pos);
     uint32_t a[4] = { s->user, (uint32_t)(uintptr_t)s->fetch_buf, (uint32_t)n, s->pos };
     int got = (int)hle_call_guest(s->fetch, 4, a);
     if (got <= 0) return AVERROR_EOF;
@@ -96,7 +100,7 @@ static int64_t io_seek(void *opaque, int64_t off, int whence) {
     whence &= ~AVSEEK_FORCE;
     if (whence == AVSEEK_SIZE) return s->total ? (int64_t)s->total : -1;
     int64_t to = whence == SEEK_SET ? off : whence == SEEK_CUR ? s->pos + off : whence == SEEK_END && s->total ? s->total + off : -1;
-    if (to < 0) return -1;
+    if (to < 0 || (s->total && to > s->total)) return -1;
     s->pos = (uint32_t)to;
     return to;
 }
