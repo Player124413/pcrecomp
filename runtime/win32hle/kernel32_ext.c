@@ -386,21 +386,30 @@ static void k_CopyFileA(void) {                          /* (src, dst, failIfExi
 }
 
 /* ---- FindFirstFileA / FindNextFileA ---- */
-/* A directory search. Under a mod's overlay it lists the overlay's directory
- * first (d), then the game's (base) without the names the overlay had. */
+/* A directory search: the matching names, read at FindFirstFileA and handed
+ * out in NTFS's order, by name without case (a game's load dialog
+ * preselects the first; Linux's own order is the directory's). Under a mod's
+ * overlay the overlay's names come with the game's, the overlay's copy of a
+ * name winning. */
+typedef struct { char name[260]; int base; } found_t;
 typedef struct {
     DIR *d, *base;
     char dir[1024], base_dir[1024], mask[260];
     int dots;
-    char (*shown)[260];
-    int nshown;
+    found_t *names;
+    int n, at;
 } hfind;
 static void find_closer(void *o) {
     hfind *f = (hfind *)o;
     if (f->d) closedir(f->d);
     if (f->base) closedir(f->base);
-    free(f->shown);
+    free(f->names);
     free(f);
+}
+static int by_name(const void *a, const void *b) {
+    const char *x = ((const found_t *)a)->name, *y = ((const found_t *)b)->name;
+    int dx = !strcmp(x, ".") ? 0 : !strcmp(x, "..") ? 1 : 2, dy = !strcmp(y, ".") ? 0 : !strcmp(y, "..") ? 1 : 2;
+    return dx != dy ? dx - dy : strcasecmp(x, y);
 }
 
 /* Windows wildcard match, without case: * any run, ? one character; "*.*"
@@ -437,31 +446,26 @@ static void fill_find(uint32_t o, const char *dir, const char *name) {
     strncpy((char *)(uintptr_t)(o + 44), name, 259);
 }
 
-static int shown_already(hfind *f, const char *name) {
-    for (int i = 0; i < f->nshown; i++)
-        if (!strcasecmp(f->shown[i], name)) return 1;
+static int listed(const hfind *f, const char *name) {
+    for (int i = 0; i < f->n; i++)
+        if (!strcasecmp(f->names[i].name, name)) return 1;
     return 0;
 }
-
-static int find_next(hfind *f, uint32_t out) {
+static void list_dir(hfind *f, DIR *d, int base) {
     struct dirent *e;
-    while (f->d && (e = readdir(f->d))) {
+    while (d && (e = readdir(d))) {
         int dot = !strcmp(e->d_name, ".") || !strcmp(e->d_name, "..");
-        if (dot && !f->dots) continue;
-        if (!wild(f->mask, e->d_name)) continue;
-        if (f->base) {                                   /* remember it: the game's copy is hidden */
-            if (f->nshown % 64 == 0) f->shown = realloc(f->shown, sizeof *f->shown * (size_t)(f->nshown + 64));
-            snprintf(f->shown[f->nshown++], 260, "%s", e->d_name);
-        }
-        fill_find(out, f->dir, e->d_name);
-        return 1;
+        if ((dot && (!f->dots || base)) || !wild(f->mask, e->d_name) || (base && listed(f, e->d_name))) continue;
+        if (f->n % 64 == 0) f->names = (found_t *)realloc(f->names, sizeof *f->names * (size_t)(f->n + 64));
+        snprintf(f->names[f->n].name, sizeof f->names[0].name, "%s", e->d_name);
+        f->names[f->n++].base = base;
     }
-    while (f->base && (e = readdir(f->base))) {
-        if (!wild(f->mask, e->d_name) || shown_already(f, e->d_name)) continue;
-        fill_find(out, f->base_dir, e->d_name);
-        return 1;
-    }
-    return 0;
+}
+static int find_next(hfind *f, uint32_t out) {
+    if (f->at >= f->n) return 0;
+    found_t *e = &f->names[f->at++];
+    fill_find(out, e->base ? f->base_dir : f->dir, e->name);
+    return 1;
 }
 
 static void k_FindFirstFileA(void) {                     /* (pattern, &data) */
@@ -499,6 +503,9 @@ static void k_FindFirstFileA(void) {                     /* (pattern, &data) */
         RET(INVALID_HANDLE, 2);
     }
     f->d = opendir(f->dir);
+    list_dir(f, f->d, 0);
+    list_dir(f, f->base, 1);
+    if (f->n) qsort(f->names, (size_t)f->n, sizeof *f->names, by_name);
     if (!f->d || !find_next(f, A32(1))) {
         find_closer(f);
         hle_set_last_error(ERROR_FILE_NOT_FOUND);
