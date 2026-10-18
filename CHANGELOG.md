@@ -258,6 +258,9 @@ versions follow [SemVer](https://semver.org/).
   runtime gap). `HLE_FILETRACE=1` logs the data files a title opens. (#45)
 
 ### Fixed
+- bin2iso: Mode 2 Form 1 (CD-ROM XA) data tracks convert correctly; the
+  header size is read from each sector's mode byte instead of assumed to be
+  Mode 1's 16 bytes. Found on Twisted Metal (Japan). (#104)
 - lift16: `rcl`/`rcr` on a dword built the 33-bit value in 32 bits and lost
   the carry; `rcr eax, 1` was garbage. Microsoft Space Simulator's Kepler
   solver never converged. difftest16 no longer compares OF after
