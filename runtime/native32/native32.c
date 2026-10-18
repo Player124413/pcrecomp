@@ -610,9 +610,15 @@ int native32_bind(uint32_t base, native32_shim_t* shims, int nshims) {
         for (; *ilt; ilt++, iat++) {
             int by_ord = (*ilt & 0x80000000u) != 0;
             const char* nm = by_ord ? (const char*)(uintptr_t)(*ilt & 0xFFFF) : (const char*)(b + *ilt + 2);
+            /* An import by ordinal is shimmed by "<dll>#<ordinal>", the DLL
+             * named as the import table names it, in any case: there is no
+             * name to match, and the same ordinal means different functions
+             * in different DLLs. */
+            char ordname[MAX_PATH + 8];
+            if (by_ord) _snprintf(ordname, sizeof ordname, "%s#%u", dll, *ilt & 0xFFFF);
             uint32_t va = 0;
-            for (int i = 0; !guest && !by_ord && i < nshims; i++)
-                if (!strcmp(shims[i].name, nm)) {
+            for (int i = 0; !guest && !va && i < nshims; i++)
+                if (by_ord ? !_stricmp(shims[i].name, ordname) : !strcmp(shims[i].name, nm)) {
                     va = shims[i].va;
                     shimmed++;
                 }
@@ -623,12 +629,12 @@ int native32_bind(uint32_t base, native32_shim_t* shims, int nshims) {
                 if (va && guest) guested++;
                 else if (va) native++;
                 else {
-                    fprintf(stderr, "[bind] %s!%s%s unresolved\n", dll, by_ord ? "#" : "",
-                            by_ord ? "" : nm);
+                    fprintf(stderr, "[bind] %s!%s unresolved\n", dll,
+                            by_ord ? strrchr(ordname, '#') : nm);
                     missing++;
                 }
             }
-            if (va && !by_ord) add_name(va, dll, nm);
+            if (va) add_name(va, dll, by_ord ? strrchr(ordname, '#') : nm);
             *iat = va;
         }
     }

@@ -6,6 +6,11 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- native32: an import by ordinal can be shimmed, as `"<dll>#<ordinal>"`
+  (`"DPLAY.dll#2"`, DLL name in any case). Before, ordinal imports always
+  went to LoadLibrary, so one from a DLL modern Windows no longer has
+  (DirectX 3's `DPLAY.dll`) left the image unbound. The unresolved-import
+  message now prints the ordinal. Found on Twisted Metal. (#PR)
 - disasm64: x86-64 function recovery for PE32+, so the 64-bit path no longer
   needs an IDA catalog. Seeds from `.pdata` primary entries (chained entries
   are cold chunks, not functions), the Guard CF table, exports, DIR64

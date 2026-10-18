@@ -34,7 +34,9 @@
 #include "recomp_types.h"
 
 /* Optional hand-written import bodies, matched by name at bind time. A shim
- * runs inside the lifted model (reads args from g_esp, pops them itself). */
+ * runs inside the lifted model (reads args from g_esp, pops them itself).
+ * An import by ordinal is matched by "<dll>#<ordinal>" ("DPLAY.dll#2"), the
+ * DLL compared without regard to case. */
 typedef struct { const char* name; recomp_func_t fn; uint32_t va; } native32_shim_t;
 
 /* Call once, before anything else. */
@@ -60,7 +62,7 @@ int native32_hold_image(const char* path, uint32_t base);
 uint32_t native32_map(const char* path, uint32_t base);
 
 /* Fill a mapped module's IAT the way the Windows loader would: shims first
- * (by name), then LoadLibrary + GetProcAddress. Returns unresolved count. */
+ * (by name, or "<dll>#<ordinal>"), then LoadLibrary + GetProcAddress. Returns unresolved count. */
 int native32_bind(uint32_t base, native32_shim_t* shims, int nshims);
 
 /* A mapped guest module by file name ("Golf.exe", or a path ending in one;
