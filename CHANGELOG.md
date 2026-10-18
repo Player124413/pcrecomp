@@ -12,6 +12,7 @@ versions follow [SemVer](https://semver.org/).
   (`ODDBALLZ.WAD`); it also skips subdirectories that do not exist yet.
   Verified byte-identical against i3comp on every file i3comp does extract
   (Dogz, Oddballz). `--selftest` pins the DCL decoder and the volume join.
+  The decoder is a port of zlib's contrib/blast (zlib licence, NOTICE). (#108)
 - disasm64: x86-64 function recovery for PE32+, so the 64-bit path no longer
   needs an IDA catalog. Seeds from `.pdata` primary entries (chained entries
   are cold chunks, not functions), the Guard CF table, exports, DIR64
