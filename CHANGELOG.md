@@ -258,6 +258,16 @@ versions follow [SemVer](https://semver.org/).
   runtime gap). `HLE_FILETRACE=1` logs the data files a title opens. (#45)
 
 ### Fixed
+- disasm32: a code address pushed or stored to memory into a hole inside the
+  function that holds it is an entry. The code-immediate harvest took every such
+  hole for a table the function jumps over (Theme Park's `mov edi, offset keys;
+  repne scasw`); that is now only true of an address loaded into a register.
+  Hand-written asm fills its own jump tables (`mov [tbl], offset case`) and
+  pushes continuations before a setup call, then jumps through memory: Intel's
+  Indeo 4.1 codec had 211 such targets, and every lifted jump to one found no
+  entry. SimCity 2000 gains 49 entries, its C++ EH handler stubs (`push offset
+  __ehhandler`), which IDA counts inside their functions: precision against IDA
+  85.27% -> 85.24%, recall unchanged. (#PR)
 - lift16: `rcl`/`rcr` on a dword built the 33-bit value in 32 bits and lost
   the carry; `rcr eax, 1` was garbage. Microsoft Space Simulator's Kepler
   solver never converged. difftest16 no longer compares OF after
