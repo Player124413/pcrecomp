@@ -263,7 +263,7 @@ versions follow [SemVer](https://semver.org/).
   its own back. It went through the callback trampoline, which passes stack
   arguments and ecx and returns eax, the C ABI: a register-convention function
   (hand-written asm, Watcom) was reported wrong by a bisection whatever its lift
-  did. Found bisecting Twisted Metal's lifted Indeo 4.1 codec. (#PR)
+  did. Found bisecting Twisted Metal's lifted Indeo 4.1 codec. (#106)
 - lift16: `rcl`/`rcr` on a dword built the 33-bit value in 32 bits and lost
   the carry; `rcr eax, 1` was garbage. Microsoft Space Simulator's Kepler
   solver never converged. difftest16 no longer compares OF after
