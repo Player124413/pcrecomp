@@ -1,6 +1,11 @@
 #!/usr/bin/env node
-// Convert a Mode1/2352 BIN image to a standard 2048-byte sector ISO
-// Mode1/2352 layout per sector: 16 bytes sync/header + 2048 bytes data + 288 bytes ECC/EDC
+// Convert a raw 2352-byte BIN data track to a standard 2048-byte sector ISO.
+// Mode 1:        12 sync + 4 header                  + 2048 data + 288 EDC/ECC
+// Mode 2 Form 1: 12 sync + 4 header + 8 XA subheader + 2048 data + 280 EDC/ECC
+// The mode is byte 15 of each sector, read per sector: the cue sheet's track
+// type is easy to lose, and Win95-era PC discs are often Mode 2 (CD-ROM XA).
+// Mode 2 Form 2 sectors (video/audio streams) carry no ISO9660 data and are
+// not expected on a PC data track.
 
 const fs = require('fs');
 const path = require('path');
@@ -10,7 +15,6 @@ const isoPath = process.argv[3] || binPath.replace(/\.bin$/i, '.iso');
 
 const SECTOR_RAW = 2352;
 const SECTOR_DATA = 2048;
-const HEADER_SIZE = 16; // sync (12) + header (4)
 
 const stat = fs.statSync(binPath);
 const sectorCount = Math.floor(stat.size / SECTOR_RAW);
@@ -26,8 +30,8 @@ const buf = Buffer.alloc(SECTOR_RAW);
 
 for (let i = 0; i < sectorCount; i++) {
     fs.readSync(fd_in, buf, 0, SECTOR_RAW, i * SECTOR_RAW);
-    // Write only the 2048-byte data portion (skip 16-byte header, ignore 288-byte ECC)
-    fs.writeSync(fd_out, buf, HEADER_SIZE, SECTOR_DATA);
+    const header = buf[15] === 2 ? 24 : 16;
+    fs.writeSync(fd_out, buf, header, SECTOR_DATA);
 }
 
 fs.closeSync(fd_in);
