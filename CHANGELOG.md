@@ -267,7 +267,7 @@ versions follow [SemVer](https://semver.org/).
   Indeo 4.1 codec had 211 such targets, and every lifted jump to one found no
   entry. SimCity 2000 gains 49 entries, its C++ EH handler stubs (`push offset
   __ehhandler`), which IDA counts inside their functions: precision against IDA
-  85.27% -> 85.24%, recall unchanged. (#PR)
+  85.27% -> 85.24%, recall unchanged. (#107)
 - lift16: `rcl`/`rcr` on a dword built the 33-bit value in 32 bits and lost
   the carry; `rcr eax, 1` was garbage. Microsoft Space Simulator's Kepler
   solver never converged. difftest16 no longer compares OF after
