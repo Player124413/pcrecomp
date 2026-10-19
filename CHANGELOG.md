@@ -269,6 +269,12 @@ versions follow [SemVer](https://semver.org/).
   runtime gap). `HLE_FILETRACE=1` logs the data files a title opens. (#45)
 
 ### Fixed
+- native32: a function run lifted inside a native module (`native32_lift_in_native`)
+  gets every register and the arithmetic flags from its native caller, and hands
+  its own back. It went through the callback trampoline, which passes stack
+  arguments and ecx and returns eax, the C ABI: a register-convention function
+  (hand-written asm, Watcom) was reported wrong by a bisection whatever its lift
+  did. Found bisecting Twisted Metal's lifted Indeo 4.1 codec. (#106)
 - disasm32: a code address pushed or stored to memory into a hole inside the
   function that holds it is an entry. The code-immediate harvest took every such
   hole for a table the function jumps over (Theme Park's `mov edi, offset keys;
