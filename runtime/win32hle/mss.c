@@ -88,7 +88,7 @@ static int io_read(void *opaque, uint8_t *buf, int n) {
     if (n > 65536) n = 65536;
     if (s->total && s->pos >= s->total) return AVERROR_EOF;
     if (s->total && (uint32_t)n > s->total - s->pos) n = (int)(s->total - s->pos);
-    uint32_t a[4] = { s->user, (uint32_t)(uintptr_t)s->fetch_buf, (uint32_t)n, s->pos };
+    uint32_t a[4] = { s->user, hle_va(s->fetch_buf), (uint32_t)n, s->pos };
     int got = (int)hle_call_guest(s->fetch, 4, a);
     if (got <= 0) return AVERROR_EOF;
     memcpy(buf, s->fetch_buf, (size_t)got);
@@ -112,7 +112,7 @@ static void asi_free(asi_t *s) {
     if (s->io) { av_freep(&s->io->buffer); avio_context_free(&s->io); }
     av_frame_free(&s->frame);
     av_packet_free(&s->pkt);
-    free(s->pcm), free(s->fetch_buf), free(s);
+    free(s->pcm), hle_free(s->fetch_buf), free(s);
 }
 
 /* The output: what the caller requested, else the stream's own. */
@@ -150,7 +150,7 @@ static int refill(asi_t *s) {
 static void s_open(void) {                               /* (user, fetch_cb, total_size) -> stream */
     asi_t *s = (asi_t *)calloc(1, sizeof *s);
     s->user = A32(0), s->fetch = A32(1), s->total = A32(2);
-    s->fetch_buf = (uint8_t *)malloc(65536);
+    s->fetch_buf = (uint8_t *)hle_alloc(65536);
     s->io = avio_alloc_context((uint8_t *)av_malloc(65536), 65536, 0, s, io_read, NULL, io_seek);
     s->fmt = avformat_alloc_context();
     s->fmt->pb = s->io;
@@ -244,7 +244,7 @@ static void r_request_interface(void) {
     if (A32(0) != MP3_PROVIDER) RET(1, 4);               /* RIB_NOT_FOUND */
     for (uint32_t i = 0; i < A32(2); i++) {
         uint32_t e = list + 16 * i, type = MEM32(e), token = MEM32(e + 8), v = 0;
-        const char *name = (const char *)(uintptr_t)MEM32(e + 4);
+        const char *name = (const char *)hle_ptr(MEM32(e + 4));
         if (type == 0) {                                 /* RIB_FUNCTION */
             char full[64];
             snprintf(full, sizeof full, "mss:%s", name);

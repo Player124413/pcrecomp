@@ -172,6 +172,32 @@ int main(void) {
         }
     }
 
+    /* An import by ordinal binds to a "<dll>#<ordinal>" shim, the DLL name in
+     * any case. A copy of this exe with its first import descriptor turned
+     * into one ordinal import from a DLL that does not exist: without the
+     * shim it is unresolved, with it the slot is the shim. */
+    {
+        char self[MAX_PATH];
+        GetModuleFileNameA(NULL, self, MAX_PATH);
+        uint32_t ob = 0x27000000u;
+        CHECK(native32_map(self, ob) != 0);
+        IMAGE_NT_HEADERS32* nt = (IMAGE_NT_HEADERS32*)(uintptr_t)(ob + ((IMAGE_DOS_HEADER*)(uintptr_t)ob)->e_lfanew);
+        IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)(uintptr_t)(ob +
+            nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+        uint32_t* ilt = (uint32_t*)(uintptr_t)(ob + (d->OriginalFirstThunk ? d->OriginalFirstThunk : d->FirstThunk));
+        uint32_t* slot = (uint32_t*)(uintptr_t)(ob + d->FirstThunk);
+        char* name = (char*)(uintptr_t)(ob + d->Name);
+        CHECK(strlen(name) >= strlen("nodll.dll"));
+        strcpy(name, "nodll.dll");
+        ilt[0] = 0x80000000u | 7;
+        ilt[1] = 0;
+        d[1].Name = 0;                          /* only this descriptor */
+        CHECK(native32_bind(ob, NULL, 0) == 1); /* no shim: unresolved */
+        static native32_shim_t shims[1] = { { "NODLL.DLL#7", (recomp_func_t)add3 } };
+        CHECK(native32_bind(ob, shims, 1) == 0);
+        CHECK(recomp_lookup_import(*slot) == (recomp_func_t)add3);
+    }
+
     printf("native32 selftest: %s\n", fails ? "FAILED" : "ok");
     return fails != 0;
 }

@@ -136,8 +136,8 @@ static void m_mciGetErrorStringA(void) { RET(0, 3); }          /* FALSE: no stri
 typedef struct { uint8_t *data; uint32_t len, pos; int owns; } hmmio;
 static hmmio *MMIO(uint32_t h) { return (hmmio *)hle_handle_obj(h, HLE_H_MMIO); }
 static void mmio_info(const hmmio *m, uint32_t info, uint32_t h) {   /* MMIOINFO over the whole file */
-    MEM32(info + 20) = m->len, MEM32(info + 24) = (uint32_t)(uintptr_t)m->data;
-    MEM32(info + 28) = (uint32_t)(uintptr_t)(m->data + m->pos), MEM32(info + 32) = (uint32_t)(uintptr_t)(m->data + m->len);
+    MEM32(info + 20) = m->len, MEM32(info + 24) = hle_va(m->data);
+    MEM32(info + 28) = hle_va(m->data) + m->pos, MEM32(info + 32) = hle_va(m->data) + m->len;
     MEM32(info + 36) = MEM32(info + 32), MEM32(info + 40) = 0, MEM32(info + 44) = m->len, MEM32(info + 68) = h;
 }
 static void m_mmioOpenA(void) {                          /* (name, MMIOINFO*, flags) */
@@ -145,16 +145,16 @@ static void m_mmioOpenA(void) {                          /* (name, MMIOINFO*, fl
     uint32_t info = A32(1), flags = A32(2);
     hmmio *m = (hmmio *)calloc(1, sizeof *m);
     if (info && MEM32(info + 4) == FOURCC_MEM && MEM32(info + 24)) {
-        m->data = (uint8_t *)(uintptr_t)MEM32(info + 24), m->len = MEM32(info + 20);
+        m->data = (uint8_t *)hle_ptr(MEM32(info + 24)), m->len = MEM32(info + 20);
     } else {
         char host[1024];
         FILE *f = !(flags & 0x1003u) && name && hle_host_path(name, host, sizeof host) ? fopen(host, "rb") : NULL;   /* not WRITE, READWRITE, CREATE */
         long n = -1;
         if (f && fseek(f, 0, SEEK_END) == 0 && (n = ftell(f)) >= 0) rewind(f);
-        m->data = f && n >= 0 ? (uint8_t *)malloc((size_t)n + 1) : NULL, m->len = (uint32_t)n, m->owns = 1;
+        m->data = f && n >= 0 ? (uint8_t *)hle_alloc((uint32_t)n + 1) : NULL, m->len = (uint32_t)n, m->owns = 1;
         if (!m->data || fread(m->data, 1, (size_t)n, f) != (size_t)n) {
             if (f) fclose(f);
-            free(m->data), free(m);
+            hle_free(m->data), free(m);
             if (info) MEM32(info + 12) = MMIOERR_CANNOTOPEN;
             RET(0, 3);
         }
@@ -167,7 +167,7 @@ static void m_mmioOpenA(void) {                          /* (name, MMIOINFO*, fl
 static void m_mmioClose(void) {
     hmmio *m = MMIO(A32(0));
     if (!m) RET(MMSYSERR_ERROR, 2);
-    if (m->owns) free(m->data);
+    if (m->owns) hle_free(m->data);
     free(m);
     hle_handle_close(A32(0));
     RET(0, 2);
@@ -176,7 +176,7 @@ static void m_mmioRead(void) {                           /* (h, buf, n) */
     hmmio *m = MMIO(A32(0));
     if (!m) RET(0xFFFFFFFFu, 3);
     uint32_t n = A32(2) < m->len - m->pos ? A32(2) : m->len - m->pos;
-    memcpy((void *)(uintptr_t)A32(1), m->data + m->pos, n);
+    memcpy(APTR(1), m->data + m->pos, n);
     m->pos += n;
     RET(n, 3);
 }
@@ -223,21 +223,21 @@ static void m_mmioAscend(void) {                         /* (h, MMCKINFO*, flags
 static void m_mmioGetInfo(void) {                        /* (h, MMIOINFO*, flags) */
     hmmio *m = MMIO(A32(0));
     if (!m) RET(MMSYSERR_ERROR, 3);
-    memset((void *)(uintptr_t)A32(1), 0, 72);
+    memset(APTR(1), 0, 72);
     mmio_info(m, A32(1), A32(0));
     RET(0, 3);
 }
 static void m_mmioSetInfo(void) {                        /* (h, MMIOINFO*, flags): where pchNext got to */
     hmmio *m = MMIO(A32(0));
     if (!m) RET(MMSYSERR_ERROR, 3);
-    uint32_t next = MEM32(A32(1) + 28) - (uint32_t)(uintptr_t)m->data;
+    uint32_t next = MEM32(A32(1) + 28) - hle_va(m->data);
     m->pos = next < m->len ? next : m->len;
     RET(0, 3);
 }
 static void m_mmioAdvance(void) {                        /* (h, MMIOINFO*, flags) */
     hmmio *m = MMIO(A32(0));
     if (!m) RET(MMSYSERR_ERROR, 3);
-    if (A32(1)) { uint32_t next = MEM32(A32(1) + 28) - (uint32_t)(uintptr_t)m->data; m->pos = next < m->len ? next : m->len; mmio_info(m, A32(1), A32(0)); }
+    if (A32(1)) { uint32_t next = MEM32(A32(1) + 28) - hle_va(m->data); m->pos = next < m->len ? next : m->len; mmio_info(m, A32(1), A32(0)); }
     RET(0, 3);
 }
 static void m_mmioSetBuffer(void) { RET(0, 4); }        /* the buffer is the whole file already */

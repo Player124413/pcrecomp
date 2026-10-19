@@ -27,7 +27,12 @@
 #define BINKFILEHANDLE 0x00800000u
 
 static const char *g_error = "";
-static void k_GetError(void) { RETP(g_error, 0); }
+static void k_GetError(void) {                           /* a copy in guest memory, made once per message */
+    static const char *copied_from;
+    static uint32_t va;
+    if (copied_from != g_error) va = hle_guest_strdup(g_error), copied_from = g_error;
+    RET(va, 0);
+}
 static void k_SetSoundSystem(void) { RET(1, 2); }        /* (open, param): DirectSound, which is ours */
 static void k_OpenDirectSound(void) { RET(0, 1); }
 /* BinkDDSurfaceType(surface): the BINKSURFACE type of a DirectDraw surface */
@@ -103,7 +108,7 @@ static void close_bink(bink_t *b) {
     av_frame_free(&b->aframe);
     av_packet_free(&b->pkt);
     if (b->fd >= 0 && !(b->OpenFlags & BINKFILEHANDLE)) close(b->fd);
-    free(b);
+    hle_free(b);
 }
 
 static void push_audio(bink_t *b) {
@@ -132,7 +137,7 @@ static int decode_frame(bink_t *b) {
 
 static void k_Open(void) {                               /* (name or handle, flags) */
     uint32_t flags = A32(1);
-    bink_t *b = (bink_t *)calloc(1, sizeof *b);
+    bink_t *b = (bink_t *)hle_alloc(sizeof *b);          /* the guest reads its leading fields */
     b->stream = -1, b->volume = 1.0f, b->fd = -1;
     if (flags & BINKFILEHANDLE) {
         b->fd = hle_file_fd(A32(0));
@@ -143,7 +148,7 @@ static void k_Open(void) {                               /* (name or handle, fla
         b->fd = open(path, O_RDONLY | O_CLOEXEC);
     }
     b->OpenFlags = flags;
-    if (b->fd < 0) { g_error = "cannot open the movie"; free(b); RET(0, 2); }
+    if (b->fd < 0) { g_error = "cannot open the movie"; hle_free(b); RET(0, 2); }
     b->io = avio_alloc_context((uint8_t *)av_malloc(65536), 65536, 0, b, io_read, NULL, io_seek);
     b->fmt = avformat_alloc_context();
     b->fmt->pb = b->io;
@@ -274,19 +279,19 @@ typedef struct {
     int destx, desty;                                    /* ours */
 } binkbuf_t;
 static void k_BufferOpen(void) {                         /* (hwnd, width, height, flags) */
-    binkbuf_t *b = (binkbuf_t *)calloc(1, sizeof *b);
+    binkbuf_t *b = (binkbuf_t *)hle_alloc(sizeof *b);   /* the game reads its fields */
     int sw, sh;
     const uint8_t *px; int pitch, bpp;
     b->Width = b->WindowWidth = A32(1), b->Height = b->WindowHeight = A32(2);
     b->SurfaceType = 3;                                  /* BINKSURFACE32 */
     b->BufferPitch = (int32_t)(b->Width * 4);
-    b->Buffer = (uint32_t)(uintptr_t)calloc((size_t)b->Width * b->Height + 1, 4);
+    b->Buffer = hle_va(hle_alloc((b->Width * b->Height + 1) * 4u));
     if (hle_gdi_window_frame(&px, &sw, &sh, &pitch, &bpp, NULL)) b->ScreenWidth = (uint32_t)sw, b->ScreenHeight = (uint32_t)sh, b->ScreenDepth = (uint32_t)bpp;
     RETP(b, 4);
 }
 static void k_BufferClose(void) {
     binkbuf_t *b = (binkbuf_t *)APTR(0);
-    if (b) free((void *)(uintptr_t)b->Buffer), free(b);
+    if (b) hle_free(hle_ptr(b->Buffer)), hle_free(b);
     RETV(1);
 }
 static void k_BufferLock(void) { RET(A32(0) != 0, 1); }
@@ -307,7 +312,7 @@ static void k_BufferBlit(void) {                         /* (buf, rects, n): the
             for (int x = 0; x < (int)b->Width; x++) {
                 int tx = b->destx + x;
                 if (tx >= 0 && tx < sw)
-                    ((uint32_t *)(uintptr_t)(px + (size_t)ty * pitch))[tx] = ((const uint32_t *)(uintptr_t)b->Buffer)[(size_t)y * b->Width + x] & 0xFFFFFFu;
+                    ((uint32_t *)(px + (size_t)ty * pitch))[tx] = ((const uint32_t *)hle_ptr(b->Buffer))[(size_t)y * b->Width + x] & 0xFFFFFFu;
             }
         }
         hle_gdi_window_touched();

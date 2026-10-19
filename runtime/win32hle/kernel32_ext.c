@@ -22,6 +22,11 @@
 #include <sys/mman.h>
 #include "win32hle.h"
 
+#ifdef __APPLE__                 /* struct stat's times by their BSD names */
+#define st_mtim st_mtimespec
+#define st_atim st_atimespec
+#endif
+
 #define INVALID_HANDLE  0xFFFFFFFFu
 #define ERROR_FILE_NOT_FOUND    2u
 #define ERROR_PATH_NOT_FOUND    3u
@@ -218,7 +223,7 @@ static void put_ft(uint32_t at, uint64_t ft) { if (at) MEM32(at) = (uint32_t)ft,
 static uint64_t get_ft(uint32_t at) { return at ? (uint64_t)MEM32(at) | (uint64_t)MEM32(at + 4) << 32 : 0; }
 
 static void put_systemtime(uint32_t st, const struct tm *t, int ms) {
-    uint16_t *w = (uint16_t *)(uintptr_t)st;
+    uint16_t *w = (uint16_t *)hle_ptr(st);
     w[0] = (uint16_t)(t->tm_year + 1900), w[1] = (uint16_t)(t->tm_mon + 1), w[2] = (uint16_t)t->tm_wday;
     w[3] = (uint16_t)t->tm_mday, w[4] = (uint16_t)t->tm_hour, w[5] = (uint16_t)t->tm_min;
     w[6] = (uint16_t)t->tm_sec, w[7] = (uint16_t)ms;
@@ -322,7 +327,7 @@ static void k_GetFileInformationByHandle(void) {         /* (h, &BY_HANDLE_FILE_
     uint32_t o = A32(1);
     struct stat st;
     if (fd < 0 || fstat(fd, &st) != 0) { hle_set_last_error(ERROR_INVALID_HANDLE); RET(0, 2); }
-    memset((void *)(uintptr_t)o, 0, 52);
+    memset(hle_ptr(o), 0, 52);
     MEM32(o) = attrs_of(&st);
     put_ft(o + 4, unix_to_ft(st.st_mtim.tv_sec, st.st_mtim.tv_nsec));
     put_ft(o + 12, unix_to_ft(st.st_atim.tv_sec, st.st_atim.tv_nsec));
@@ -443,7 +448,7 @@ static void fill_find(uint32_t o, const char *dir, const char *name) {
     char full[1300];
     struct stat st;
     snprintf(full, sizeof full, "%s/%s", dir, name);
-    memset((void *)(uintptr_t)o, 0, 320);
+    memset(hle_ptr(o), 0, 320);
     if (stat(full, &st) == 0) {
         MEM32(o) = attrs_of(&st);
         put_ft(o + 4, unix_to_ft(st.st_mtim.tv_sec, st.st_mtim.tv_nsec));
@@ -451,7 +456,7 @@ static void fill_find(uint32_t o, const char *dir, const char *name) {
         put_ft(o + 20, unix_to_ft(st.st_mtim.tv_sec, st.st_mtim.tv_nsec));
         MEM32(o + 28) = (uint32_t)((uint64_t)st.st_size >> 32), MEM32(o + 32) = (uint32_t)st.st_size;
     }
-    strncpy((char *)(uintptr_t)(o + 44), name, 259);
+    strncpy((char *)hle_ptr(o + 44), name, 259);
 }
 
 static int listed(const hfind *f, const char *name) {
@@ -669,7 +674,7 @@ static void k_GetFullPathNameA(void) {
     if (buf && n) { strncpy(buf, abs, n - 1); buf[n - 1] = 0; }
     if (A32(3) && buf) {
         char *bs = strrchr(buf, '\\'), *fs = strrchr(buf, '/'), *p = bs > fs ? bs : fs;
-        MEM32(A32(3)) = (uint32_t)(uintptr_t)(p ? p + 1 : buf);
+        MEM32(A32(3)) = hle_va(p ? p + 1 : buf);
     }
     RET(buf ? (uint32_t)strlen(buf) : (uint32_t)strlen(abs), 4);
 }
@@ -711,16 +716,20 @@ static void k_MapViewOfFile(void) {                      /* (hMap, access, offHi
     uint64_t len = A32(4) ? A32(4) : m->size - off;
     int copy = A32(1) == 1;                                /* FILE_MAP_COPY */
     int prot = PROT_READ | (m->writable || copy ? PROT_WRITE : 0);
-    void *p = m->fd < 0 ? mmap(NULL, len, prot, MAP_SHARED | MAP_ANONYMOUS, -1, 0)
-                        : mmap(NULL, len, prot, copy ? MAP_PRIVATE : MAP_SHARED, m->fd, (off_t)off);
-    if (p == MAP_FAILED) { hle_set_last_error(8); RET(0, 5); }   /* ERROR_NOT_ENOUGH_MEMORY */
-    for (int i = 0; i < MAX_VIEWS; i++) if (!g_views[i].addr) { g_views[i].addr = (uint32_t)(uintptr_t)p, g_views[i].len = (uint32_t)len; break; }
-    RET((uint32_t)(uintptr_t)p, 5);
+    /* the view lives in guest memory: reserve it there, then put the file over
+     * it (a pagefile mapping is the reservation's own zeroed pages) */
+    uint32_t va = hle_vm_reserve(0, (uint32_t)len);
+    if (!va) { hle_set_last_error(8); RET(0, 5); }       /* ERROR_NOT_ENOUGH_MEMORY */
+    if (m->fd >= 0 && mmap(hle_ptr(va), len, prot, MAP_FIXED | (copy ? MAP_PRIVATE : MAP_SHARED), m->fd, (off_t)off) == MAP_FAILED) {
+        hle_vm_release(va, (uint32_t)len); hle_set_last_error(8); RET(0, 5);
+    }
+    for (int i = 0; i < MAX_VIEWS; i++) if (!g_views[i].addr) { g_views[i].addr = va, g_views[i].len = (uint32_t)len; break; }
+    RET(va, 5);
 }
 static void k_UnmapViewOfFile(void) {
     for (int i = 0; i < MAX_VIEWS; i++)
         if (g_views[i].addr && g_views[i].addr == A32(0)) {
-            munmap((void *)(uintptr_t)g_views[i].addr, g_views[i].len);
+            hle_vm_release(g_views[i].addr, g_views[i].len);
             g_views[i].addr = 0;
             RET(1, 1);
         }

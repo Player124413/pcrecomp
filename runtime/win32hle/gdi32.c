@@ -50,7 +50,7 @@ static void g_CreateDIBSection(void) {
     /* any depth gets its pixels (rows are DWORD-aligned), and a bitmap object
      * (gdidc.c) a DC can select and blit from: 16bpp is 5-6-5 only when its
      * BI_BITFIELDS masks say so, and 8bpp and below bring a colour table */
-    uint32_t *bits = (uint32_t *)calloc((size_t)((w * bpp + 31) / 32) * hab + 1, 4);
+    uint32_t *bits = (uint32_t *)hle_alloc((uint32_t)((w * bpp + 31) / 32 * hab + 1) * 4u);   /* guest memory: the guest draws into it */
     uint32_t size = (uint32_t)(bmi[0] | bmi[1] << 8), comp = (uint32_t)(bmi[16] | bmi[17] << 8);
     uint32_t used = (uint32_t)(bmi[32] | bmi[33] << 8 | bmi[34] << 16);
     const uint8_t *after = bmi + size;
@@ -64,7 +64,7 @@ static void g_CreateDIBSection(void) {
         g_dibs[g_dib_n].h_abs = hab; g_dibs[g_dib_n].topdown = h < 0;
         g_dib_n++;
     }
-    if (ppv) *ppv = (uint32_t)(uintptr_t)bits;   /* the guest draws straight into this */
+    if (ppv) *ppv = hle_va(bits);   /* the guest draws straight into this */
     RET(handle, 6);
 }
 
@@ -105,7 +105,7 @@ static void g_CreateCompatibleDC(void){ RET(0x0DC00002u, 1); }
 static void g_DeleteDC(void)          { RET(1, 1); }
 int hle_gdi_dib_delete(uint32_t h) {
     for (int i = 0; i < g_dib_n; i++)
-        if (g_dibs[i].h == h && g_dibs[i].bits) { free(g_dibs[i].bits); g_dibs[i] = g_dibs[--g_dib_n]; return 1; }   /* the last takes its slot */
+        if (g_dibs[i].h == h && g_dibs[i].bits) { hle_free(g_dibs[i].bits); g_dibs[i] = g_dibs[--g_dib_n]; return 1; }   /* the last takes its slot */
     return 0;
 }
 

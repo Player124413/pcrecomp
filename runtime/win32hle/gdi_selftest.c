@@ -16,7 +16,7 @@
 static int fails;
 static void ok(const char *what, int cond) { if (!cond) { printf("FAIL %s\n", what); fails++; } }
 static uint32_t call(const char *name, int n, const uint32_t *a) { return hle_call_guest(hle_resolve(name), n, a); }
-#define A(p) ((uint32_t)(uintptr_t)(p))
+#define A(p) hle_va(p)                               /* what the guest is handed lives in guest memory */
 
 const recomp_dispatch_entry_t recomp_dispatch_table[1];
 const uint32_t recomp_dispatch_count = 0;
@@ -29,13 +29,13 @@ int main(void) {
     hle_gdi_window_surface((uint8_t *)screen, 4, 2, 16, 32);
 
     /* a 2x2 BI_RGB 16bpp DIB: bottom-up, so its first row in memory is the bottom one */
-    static uint8_t bmi[40];
+    uint8_t *bmi = (uint8_t *)hle_alloc(40);
     bmi[0] = 40, bmi[4] = 2, bmi[8] = 2, bmi[12] = 1, bmi[14] = 16;
-    static uint32_t bits;
-    uint32_t a1[6] = { 0, A(bmi), 0, A(&bits), 0, 0 };
+    uint32_t *bits = (uint32_t *)hle_alloc(4);
+    uint32_t a1[6] = { 0, A(bmi), 0, A(bits), 0, 0 };
     uint32_t dib = call("CreateDIBSection", 6, a1);
-    ok("CreateDIBSection", dib && bits);
-    uint16_t *px = (uint16_t *)(uintptr_t)bits;          /* rows are 4 bytes: 2 pixels */
+    ok("CreateDIBSection", dib && *bits);
+    uint16_t *px = (uint16_t *)hle_ptr(*bits);         /* rows are 4 bytes: 2 pixels */
     px[0] = 0x7C00, px[1] = 0x03E0;                       /* bottom row: red, green */
     px[2] = 0x001F, px[3] = 0x7FFF;                       /* top row: blue, white */
 
@@ -54,7 +54,8 @@ int main(void) {
 
     /* clip to x < 2: the second column stays */
     memset(screen, 0, sizeof screen);
-    static uint32_t rc[4] = { 0, 0, 2, 2 };
+    uint32_t *rc = (uint32_t *)hle_alloc(16);
+    rc[2] = rc[3] = 2;
     uint32_t rgn = call("CreateRectRgnIndirect", 1, (uint32_t[]){ A(rc) });
     call("SelectClipRgn", 2, (uint32_t[]){ win, rgn });
     call("BitBlt", 9, a3);
@@ -68,14 +69,14 @@ int main(void) {
     fwrite(riff, 1, sizeof riff, f);
     fclose(f);
     hle_set_drive('Z', "/");
-    uint32_t h = call("mmioOpenA", 3, (uint32_t[]){ A("Z:\\tmp\\hle_selftest.wav"), 0, 0 });
+    uint32_t h = call("mmioOpenA", 3, (uint32_t[]){ hle_scratch_copy("Z:\\tmp\\hle_selftest.wav", 25), 0, 0 });
     ok("mmioOpenA", h != 0);
-    static uint32_t form[5], ck[5];
+    uint32_t *form = (uint32_t *)hle_alloc(20), *ck = (uint32_t *)hle_alloc(20);
     form[2] = 0x45564157u;                               /* 'WAVE' */
     ok("descend RIFF WAVE", call("mmioDescend", 4, (uint32_t[]){ h, A(form), 0, 0x20 }) == 0);
     ck[0] = 0x61746164u;                                 /* 'data': past 'fmt ' */
     ok("find data", call("mmioDescend", 4, (uint32_t[]){ h, A(ck), A(form), 0x10 }) == 0 && ck[1] == 2);
-    static uint8_t got[4];
+    uint8_t *got = (uint8_t *)hle_alloc(4);
     ok("read data", call("mmioRead", 3, (uint32_t[]){ h, A(got), 4 }) == 2 && got[0] == 9 && got[1] == 9);
     call("mmioClose", 2, (uint32_t[]){ h, 0 });
 

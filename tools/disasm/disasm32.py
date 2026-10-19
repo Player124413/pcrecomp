@@ -899,9 +899,16 @@ class Disassembler:
               # data table, so neither the call scan nor the data scan finds it;
               # it surfaces at runtime as a callback that cannot be dispatched.
               for func in new_funcs:
-                  # The body's own span: an immediate into a hole inside it
-                  # is the function's data, a table it jumps over (Theme
-                  # Park's `mov edi, offset keys; repne scasw` switch).
+                  # The body's own span: an address loaded into a register
+                  # that points into a hole inside it is the function's data,
+                  # a table it jumps over (Theme Park's `mov edi, offset keys;
+                  # repne scasw` switch). An address pushed or stored to
+                  # memory into such a hole is code the function jumps to
+                  # through that memory: hand-written asm builds its own jump
+                  # tables (`mov [tbl], offset case`) and pushes continuations
+                  # before a setup call, then `jmp [esp+0x594]`. Intel's Indeo
+                  # 4.1 codec has 211 of them; skipped, every one was a lifted
+                  # jump with nowhere to go.
                   own = {i.address for b in func.blocks.values() for i in b.instructions}
                   own_lo, own_hi = (min(own), max(own)) if own else (0, 0)
                   for b in func.blocks.values():
@@ -916,7 +923,8 @@ class Disassembler:
                                   continue
                               if not self.is_code_address(tgt):
                                   continue
-                              if own_lo < tgt < own_hi and tgt not in own:
+                              loaded = (ins.mnemonic == 'mov' and ins.operands[0].type == X86_OP_REG)
+                              if own_lo < tgt < own_hi and tgt not in own and loaded:
                                   continue
                               # Data kept in code is loaded the same way: Theme
                               # Park's startup does `mov edx, offset "con"` for

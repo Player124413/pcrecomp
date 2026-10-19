@@ -36,7 +36,7 @@ struct thread_arg { uint32_t start, param, tid; volatile int suspend, done; uint
 static __thread struct thread_arg *t_self;
 static void *thread_trampoline(void *p) {
     struct thread_arg *a = (struct thread_arg *)p;
-    hle_thread_id_set(a->tid);                     /* the id CreateThread gave out (PostThreadMessageA) */
+    hle_thread_id_adopt(a->tid);                     /* the id CreateThread gave out (PostThreadMessageA) */
     while (a->suspend > 0) usleep(1000);
     t_self = a;
     uint32_t args[1] = { a->param };
@@ -47,7 +47,7 @@ static void *thread_trampoline(void *p) {
 static void k_CreateThread(void) {             /* (sa, stack, start, param, flags, &tid) */
     struct thread_arg *a = (struct thread_arg *)calloc(1, sizeof *a);
     a->start = A32(2); a->param = A32(3); a->suspend = (A32(4) & 4) != 0;   /* CREATE_SUSPENDED */
-    a->tid = hle_thread_id_alloc();
+    a->tid = hle_thread_id_new();
     uint32_t h = hle_handle_alloc(HLE_H_THREAD, a);
     pthread_t t;
     if (!h || pthread_create(&t, NULL, thread_trampoline, a) != 0) { if (h) hle_handle_close(h); free(a); RET(0, 6); }
@@ -283,8 +283,9 @@ static void k_GetThreadLocale(void)      { RET(0x0409u, 0); }
 static void k_IsValidLocale(void)        { RET(A32(0) == 0x0409u || A32(0) == 0x0400u || A32(0) == 0x0800u ? 1u : 0u, 2); }
 /* EnumSystemLocalesA(proc, flags): the one locale, to the guest's callback. */
 static void k_EnumSystemLocalesA(void) {
-    static char loc[] = "00000409";
-    uint32_t a[1] = { (uint32_t)(uintptr_t)loc };
+    static uint32_t loc;
+    if (!loc) loc = hle_guest_strdup("00000409");
+    uint32_t a[1] = { loc };
     if (A32(0)) hle_call_guest(A32(0), 1, a);
     RET(1, 2);
 }
@@ -349,7 +350,15 @@ static void k_GetDateFormatA(void) { date_or_time(0); }
 static void k_GetTimeFormatA(void) { date_or_time(1); }
 
 /* --- environment: the host's, filtered to nothing a game would misread --- */
-static char g_env[4096] = "PATH=C:\\WINDOWS\\SYSTEM32;C:\\WINDOWS\0WINDIR=C:\\WINDOWS\0\0";
+/* The block the guest is handed (GetEnvironmentStrings), so in its memory. */
+#define ENV_SIZE 4096u
+static char *env_block(void) {
+    static char *env;
+    static const char init[] = "PATH=C:\\WINDOWS\\SYSTEM32;C:\\WINDOWS\0WINDIR=C:\\WINDOWS\0\0";
+    if (!env) env = (char *)hle_alloc(ENV_SIZE), memcpy(env, init, sizeof init);
+    return env;
+}
+#define g_env (env_block())
 static size_t env_len(void) { size_t k = 0; while (g_env[k]) k += strlen(g_env + k) + 1; return k + 1; }
 static void k_GetEnvironmentStrings(void)   { RETP(g_env, 0); }
 static void k_GetEnvironmentStringsW(void)  { hle_set_last_error(ERROR_CALL_NOT_IMPLEMENTED); RET(0, 0); }
@@ -371,7 +380,7 @@ static void k_GetEnvironmentVariableA(void) {      /* (name, buf, n) */
 }
 static void k_SetEnvironmentVariableA(void) {      /* (name, value or NULL) */
     const char *name = ASTR(0), *val = ASTR(1);
-    char rebuilt[sizeof g_env];
+    char rebuilt[ENV_SIZE];
     size_t o = 0, nl = name ? strlen(name) : 0;
     for (size_t k = 0; g_env[k]; k += strlen(g_env + k) + 1)
         if (!(name && !strncasecmp(g_env + k, name, nl) && g_env[k + nl] == '=')) {
@@ -441,7 +450,7 @@ static void k_GlobalMemoryStatus(void) {           /* (&MEMORYSTATUS) 32 bytes *
 static void k_GetSystemInfo(void) {                /* SYSTEM_INFO, 36 bytes */
     uint32_t s = A32(0);
     if (s) {
-        memset((void *)(uintptr_t)s, 0, 36);
+        memset(hle_ptr(s), 0, 36);
         MEM32(s + 4) = 0x1000u, MEM32(s + 8) = 0x10000u, MEM32(s + 12) = 0x7FFEFFFFu;
         MEM32(s + 16) = 1, MEM32(s + 20) = 1, MEM32(s + 24) = 586, MEM32(s + 28) = 0x10000u;
         MEM16(s + 32) = 6;
