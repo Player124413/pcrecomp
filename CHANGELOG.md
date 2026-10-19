@@ -5,7 +5,18 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- `lift32`: `fst st(i)`, the register form, lifted to nothing, silently. It
+  copies st(0) to st(i) without a pop; Shadows of the Empire keeps 1/z in st(1)
+  that way, so every projected y was multiplied by the 0 left there and all 3D
+  geometry drew on one screen row. New difftest case `fpu.fst-st1`.
+
 ### Added
+- `tools/drm/steamstub.py`: SteamStub 3.x (x86). The code key sits in the stub's
+  own 0xF0-byte header, not in `steamdrm.dll`, so it unwraps without loading the
+  DLL. Layout read from the stub's code on Star Wars: Shadows of the Empire
+  (app 560170) and checked on Rogue Squadron 3D (app 455910): both decrypt to
+  an MSVC CRT start at the OEP. Selftest covers the header copy and the AES layout.
 - disasm64: x86-64 function recovery for PE32+, so the 64-bit path no longer
   needs an IDA catalog. Seeds from `.pdata` primary entries (chained entries
   are cold chunks, not functions), the Guard CF table, exports, DIR64
@@ -264,6 +275,16 @@ versions follow [SemVer](https://semver.org/).
   arguments and ecx and returns eax, the C ABI: a register-convention function
   (hand-written asm, Watcom) was reported wrong by a bisection whatever its lift
   did. Found bisecting Twisted Metal's lifted Indeo 4.1 codec. (#106)
+- disasm32: a code address pushed or stored to memory into a hole inside the
+  function that holds it is an entry. The code-immediate harvest took every such
+  hole for a table the function jumps over (Theme Park's `mov edi, offset keys;
+  repne scasw`); that is now only true of an address loaded into a register.
+  Hand-written asm fills its own jump tables (`mov [tbl], offset case`) and
+  pushes continuations before a setup call, then jumps through memory: Intel's
+  Indeo 4.1 codec had 211 such targets, and every lifted jump to one found no
+  entry. SimCity 2000 gains 49 entries, its C++ EH handler stubs (`push offset
+  __ehhandler`), which IDA counts inside their functions: precision against IDA
+  85.27% -> 85.24%, recall unchanged. (#107)
 - lift16: `rcl`/`rcr` on a dword built the 33-bit value in 32 bits and lost
   the carry; `rcr eax, 1` was garbage. Microsoft Space Simulator's Kepler
   solver never converged. difftest16 no longer compares OF after

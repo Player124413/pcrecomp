@@ -115,6 +115,11 @@ CASES = [
     # cases check the balance first and the arithmetic second.
     # fld dword [esi]; fcomp dword [esi+4]; fnstsw ax -- an unordered compare
     # sets C3|C2|C0 (ah = 0x45). It used to read as "equal" (0x40).
+    # fldz; fld [esi]; fst st(1); fstp [esi+8]; fstp [esi+0xc] -- the register
+    # form of fst copies st(0) down without popping. It lifted to nothing, so
+    # st(1) kept the 0 (Shadows of the Empire's projection, 0x004ABAB2).
+    Case('fpu.fst-st1', bytes.fromhex('d9eed906ddd1d95e08d95e0c'),
+         mem={SCRATCH: struct.pack('<f', 2.5)}),
     Case('fpu.fcom-nan', bytes.fromhex('d906d85e04dfe0'),
          mem={SCRATCH: struct.pack('<ff', float('nan'), 1.0)}),
     Case('fpu.fcom-less', bytes.fromhex('d906d85e04dfe0'),
