@@ -12,6 +12,13 @@ versions follow [SemVer](https://semver.org/).
   geometry drew on one screen row. New difftest case `fpu.fst-st1`.
 
 ### Added
+- `assets/is3extract.py`: InstallShield 3 archives (`.Z`, `.LIB`, spanned
+  `NAME.1`/`NAME.2`), with its own PKWARE DCL decoder. i3comp extracts nothing
+  for a file split across volumes, and on Oddballz that file is the game
+  (`ODDBALLZ.WAD`); it also skips subdirectories that do not exist yet.
+  Verified byte-identical against i3comp on every file i3comp does extract
+  (Dogz, Oddballz). `--selftest` pins the DCL decoder and the volume join.
+  The decoder is a port of zlib's contrib/blast (zlib licence, NOTICE). (#108)
 - native32: an import by ordinal can be shimmed, as `"<dll>#<ordinal>"`
   (`"DPLAY.dll#2"`, DLL name in any case). Before, ordinal imports always
   went to LoadLibrary, so one from a DLL modern Windows no longer has
