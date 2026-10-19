@@ -6,6 +6,14 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- drm/safedisc1.py: unwrap a SafeDisc 1.x title by emulating its loader headless
+  under Unicorn (no disc, no driver, nothing launched), the shape of emu_unpack.
+  Work in progress: drives the loader through CRT start-up, C-DILLA set-up and the
+  full anti-debug gauntlet (SoftICE/`NtQueryInformationProcess`/`IsDebuggerPresent`/
+  `KUSER_SHARED_DATA`) up to the secdrv `0xEF002407` authentication. The decryption
+  is gated on that challenge; emulating SECDRV.SYS to answer it, then capturing the
+  process-hollowed child, is what remains (docs/safedisc1.md has the full mechanism).
+  First target: Flight Simulator 2000; reusable for Crimson Skies, X-Wing Alliance.
 - disasm64: x86-64 function recovery for PE32+, so the 64-bit path no longer
   needs an IDA catalog. Seeds from `.pdata` primary entries (chained entries
   are cold chunks, not functions), the Guard CF table, exports, DIR64
