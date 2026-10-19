@@ -15,6 +15,12 @@ versions follow [SemVer](https://semver.org/).
   `0xEF002407` and the `KeTickCount` stable-read spin. Verified: the FS2000 loader
   accepts the response and runs on (~10M insns → ~132M). secdrv is identical
   across SafeDisc 1 titles, so this serves all of them.
+- drm/safedisc1_dump.py: run-and-dump fallback for the SafeDisc 1 loader/ICD
+  model (vs the in-place XWA drm/safedisc_dump.py). Launches the loader on a
+  Windows VM, finds the process-hollowed child by its decrypted (low-entropy)
+  .text at the ICD base, and reads the ICD's section ranges out of it to
+  reconstruct the decrypted .ICD. Produces a reference to validate the headless
+  drm/safedisc1.py against, and unblocks lifting immediately.
 - drm/safedisc1.py: unwrap a SafeDisc 1.x title by emulating its loader headless
   under Unicorn (no disc, no driver, nothing launched), the shape of emu_unpack.
   Work in progress: drives the loader through CRT start-up, C-DILLA set-up, the
