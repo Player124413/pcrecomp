@@ -6,13 +6,24 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- drm/secdrv.py: emulate SafeDisc's SECDRV.SYS headless to answer the loader's
+  `DeviceIoControl(\\.\Secdrv, 0xEF002407)` authentication challenge — the
+  documented crux of the SafeDisc 1 unwrap. The 14 KB driver runs under its own
+  Unicorn instance with a fake DRIVER_OBJECT and stubbed `ntoskrnl` imports;
+  `DriverEntry` is emulated once to capture the device-control dispatch, then each
+  IOCTL builds an IRP and runs it. Handles the METHOD_NEITHER buffering of
+  `0xEF002407` and the `KeTickCount` stable-read spin. Verified: the FS2000 loader
+  accepts the response and runs on (~10M insns → ~132M). secdrv is identical
+  across SafeDisc 1 titles, so this serves all of them.
 - drm/safedisc1.py: unwrap a SafeDisc 1.x title by emulating its loader headless
   under Unicorn (no disc, no driver, nothing launched), the shape of emu_unpack.
-  Work in progress: drives the loader through CRT start-up, C-DILLA set-up and the
+  Work in progress: drives the loader through CRT start-up, C-DILLA set-up, the
   full anti-debug gauntlet (SoftICE/`NtQueryInformationProcess`/`IsDebuggerPresent`/
-  `KUSER_SHARED_DATA`) up to the secdrv `0xEF002407` authentication. The decryption
-  is gated on that challenge; emulating SECDRV.SYS to answer it, then capturing the
-  process-hollowed child, is what remains (docs/safedisc1.md has the full mechanism).
+  `KUSER_SHARED_DATA`), the secdrv authentication (via drm/secdrv.py), its
+  `int 1`/`int 3` SEH tricks, and a real backing-file model (so the shell's
+  self-reopen and ICD reads deliver true bytes). Now reaches the shell's `.txt`
+  code-reconstruction engine; finishing the per-page payload decryptor, then
+  capturing the process-hollowed child, is what remains (docs/safedisc1.md).
   First target: Flight Simulator 2000; reusable for Crimson Skies, X-Wing Alliance.
 - disasm64: x86-64 function recovery for PE32+, so the 64-bit path no longer
   needs an IDA catalog. Seeds from `.pdata` primary entries (chained entries

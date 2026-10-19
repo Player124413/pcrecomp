@@ -34,7 +34,9 @@ import pefile
 from unicorn import *
 from unicorn.x86_const import *
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pe'))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)                                   # our own dir (py -P strips it)
+sys.path.insert(0, os.path.join(_HERE, '..', 'pe'))
 try:
     from stdcall_argc import ArgcResolver
     _ARGC = ArgcResolver()
@@ -62,8 +64,12 @@ def align(v, a=PAGE):
 class Tracer:
     def __init__(self, loader, icd):
         self.pe = pefile.PE(loader)
+        self.loader_path = loader
+        self.loader_base = os.path.basename(loader).lower()
+        self.loader_bytes = open(loader, 'rb').read()
         self.icd_path = icd
         self.icd = open(icd, 'rb').read()
+        self.fdata = {}                 # file HANDLE -> [bytes, position]
         oh = self.pe.OPTIONAL_HEADER
         self.base, self.size = oh.ImageBase, align(oh.SizeOfImage)
         self.entry = self.base + oh.AddressOfEntryPoint
@@ -143,6 +149,20 @@ class Tracer:
                 self.w32(i.address, self.thunk(dll, i.name.decode() if i.name else i.ordinal))
         uc.hook_add(UC_HOOK_CODE, self._api, begin=THUNKS, end=THUNKS + 0xFFFFF)
         uc.hook_add(UC_HOOK_MEM_UNMAPPED, self._unmapped)
+        uc.hook_add(UC_HOOK_INTR, self._intr)
+
+    def _intr(self, uc, intno, _):
+        # SafeDisc sprinkles int1/int3/icebp through the shell: on a clean machine
+        # the fault is delivered to its own SEH handler, which resumes after the
+        # instruction; a debugger would consume it instead (that is the check). We
+        # are the "no debugger" case, so dispatch to the registered handler (or, if
+        # it just resumes, step past the trap).
+        eip = uc.reg_read(UC_X86_REG_EIP)
+        op = uc.mem_read(eip, 1)[0]
+        n = 1 if op in (0xCC, 0xF1, 0xCE, 0xF4) else 2 if op == 0xCD else 0
+        self.intr_count = getattr(self, 'intr_count', 0) + 1
+        self._seh(uc, {0xCC: 0x80000003, 0xF1: 0x80000004}.get(op, 0x80000004),
+                  eip, eip + n)
 
     @staticmethod
     def _gdt(base, limit, flags=0x40):
@@ -169,6 +189,21 @@ class Tracer:
         a, self.heap = self.heap, self.heap + align(size, PAGE)
         return a
 
+    def _secdrv(self):
+        # Lazily bring up the SECDRV.SYS emulator; it sits beside the ICD/loader.
+        if getattr(self, '_sd', 'unset') == 'unset':
+            self._sd = None
+            from secdrv import Secdrv
+            for d in (os.path.dirname(os.path.abspath(self.icd_path)),
+                      os.path.dirname(os.path.abspath(self.loader_path))):
+                p = os.path.join(d, 'SECDRV.SYS')
+                if os.path.exists(p):
+                    self._sd = Secdrv(p)
+                    break
+            if self._sd is None:
+                self.log.append(('!secdrv', 'SECDRV.SYS not found beside ICD'))
+        return self._sd
+
     # ---- API dispatch
     def _api(self, uc, addr, size, _):
         dll, name = self.thunks[addr]
@@ -194,6 +229,12 @@ class Tracer:
         uc.reg_write(UC_X86_REG_EIP, ret)
         uc.reg_write(UC_X86_REG_ESP, esp + 4 + 4 * argc)
 
+    def _seh(self, uc, code, fault_eip, resume_eip):
+        # ponytail: resume past the trap. SafeDisc's int1/int3 handler, in the
+        # no-debugger case, continues after the instruction. If a title needs the
+        # handler's context edits, dispatch the fs:[0] chain here instead.
+        uc.reg_write(UC_X86_REG_EIP, resume_eip)
+
     def _unmapped(self, uc, access, addr, size, value, _):
         self.stop_reason = 'unmapped %s at 0x%08X from eip 0x%08X' % (
             {16: 'read', 17: 'write', 18: 'fetch'}.get(access, access), addr,
@@ -209,7 +250,9 @@ class Tracer:
     def api_GetModuleHandleA(self, a):
         s = self.cstr(a(0)); return 1, (self.base if not s else self.module(s))
     def api_GetModuleFileNameA(self, a):
-        path = (self.icd_path).encode()[:a(2) - 1]
+        # NULL module = the loader itself; it reopens this path to read its payload.
+        path = (self.loader_path if not a(0) or a(0) == self.base
+                else self.icd_path).encode()[:a(2) - 1]
         self.uc.mem_write(a(1), path + b'\0'); return 3, len(path)
     def api_LoadLibraryA(self, a):
         return 1, self.module(self.cstr(a(0)))
@@ -363,7 +406,16 @@ class Tracer:
         tail = (name or '').lower().lstrip('\\.').strip('\\')
         if (name or '').startswith('\\\\.\\') and tail in self.DBG_DEVICES:
             return 7, 0xFFFFFFFF        # INVALID_HANDLE_VALUE: no such debugger
-        return 7, self.handle(('file', name))
+        h = self.handle(('file', name))
+        # Back the loader's self-reopen (it reads its own appended SafeDisc payload)
+        # and the ICD with real bytes, so reads deliver the right data -- else the
+        # shell reconstructs code from zeros and decrypts to junk.
+        low = (name or '').lower()
+        if low.endswith('.icd') or 'icd' in low:
+            self.fdata[h] = [self.icd, 0]
+        elif self.loader_base in low or self.loader_base[:-4] in low:
+            self.fdata[h] = [self.loader_bytes, 0]
+        return 7, h
     def api_NtQueryInformationProcess(self, a):
         # (handle, class, out, len, retlen); class 7 = ProcessDebugPort.
         if a(2):
@@ -399,17 +451,23 @@ class Tracer:
                 self.uc.mem_write(view, self.icd[:FILEBUF_SIZE])
         return 5, view
     def api_DeviceIoControl(self, a):
-        code = a(1)
-        self.log.append(('DeviceIoControl', 'code=0x%x' % code, 'in=0x%x/%d' % (a(2), a(3)),
-                         'out=0x%x/%d' % (a(4), a(5))))
-        # 0xEF002407 is the SafeDisc secdrv authentication challenge. A valid
-        # 1552-byte response is required before the loader will decrypt; that is
-        # the SECDRV.SYS emulation still to be written (docs/safedisc1.md).
-        if code == 0xEF002407 and not getattr(self, 'secdrv_warned', False):
-            self.secdrv_warned = True
-            self.log.append(('!secdrv', 'challenge 0xEF002407: no response emulator yet'))
+        code, inbuf, inlen, outbuf, outlen = a(1), a(2), a(3), a(4), a(5)
+        self.log.append(('DeviceIoControl', 'code=0x%x' % code, 'in=0x%x/%d' % (inbuf, inlen),
+                         'out=0x%x/%d' % (outbuf, outlen)))
+        # SafeDisc's secdrv authentication: the loader hands the driver a challenge
+        # and will not decrypt the ICD until the response is right. secdrv.py runs
+        # the real SECDRV.SYS headless to produce it (see docs/safedisc1.md).
+        if code in (0xEF002407,) and inbuf and self._secdrv():
+            challenge = bytes(self.uc.mem_read(inbuf, inlen)) if inlen else b''
+            status, info, resp = self._secdrv().ioctl(code, challenge, outlen)
+            self.log.append(('secdrv', 'status=0x%08x' % status, 'info=%d' % info))
+            if outbuf and resp:
+                self.uc.mem_write(outbuf, resp[:outlen])
+            if a(6):
+                self.w32(a(6), info)
+            return 8, (1 if status == 0 else 0)
         if a(6):
-            self.w32(a(6), a(5))      # bytes returned = out buffer size
+            self.w32(a(6), outlen)    # bytes returned = out buffer size
         return 8, 1
     def api_CreateProcessA(self, a):
         self.log.append(('CreateProcessA', self.cstr(a(0)), self.cstr(a(1))))
@@ -440,11 +498,28 @@ class Tracer:
     def api_CloseHandle(self, a):
         return 1, 1
     def api_ReadFile(self, a):
+        # (handle, buf, nbytes, pBytesRead, overlapped)
+        f = self.fdata.get(a(0))
+        n = 0
+        if f and a(1):
+            chunk = f[0][f[1]:f[1] + a(2)]
+            self.uc.mem_write(a(1), chunk)
+            f[1] += len(chunk)
+            n = len(chunk)
+        if a(3):
+            self.w32(a(3), n)
         return 5, 1
     def api_SetFilePointer(self, a):
-        return 4, a(1)
+        # (handle, distLow, pDistHigh, method); methods 0 BEGIN, 1 CURRENT, 2 END.
+        f = self.fdata.get(a(0))
+        dist = a(1) - (0x100000000 if a(1) >= 0x80000000 else 0)
+        if not f:
+            return 4, a(1)
+        f[1] = {0: dist, 1: f[1] + dist, 2: len(f[0]) + dist}.get(a(3), dist)
+        return 4, f[1] & 0xFFFFFFFF
     def api_GetFileSize(self, a):
-        return 2, len(self.icd)
+        f = self.fdata.get(a(0))
+        return 2, (len(f[0]) if f else len(self.icd))
     def api_GetFileAttributesA(self, a):
         return 1, 0x80
     def api_GetLogicalDriveStringsA(self, a):

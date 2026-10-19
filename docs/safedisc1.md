@@ -63,25 +63,64 @@ same shape as `drm/emu_unpack.py`: a GDT/TEB/PEB, a thunk per IAT entry, a
 `ArgcResolver` (tools/pe/stdcall_argc.py) for the stdcall purge of any import
 without a hand-written handler, so the stack never silently desynchronises.
 
-It currently clears steps 1–6 and reaches step 7 (~1M+ instructions, every
-anti-debug check handled). What is left:
+### Done so far
 
-1. **Emulate `SECDRV.SYS`'s IOCTL `0xEF002407`.** The driver is 8 KB, imports
-   only `Io*`/`Rtl*` from `ntoskrnl` (no disk I/O — it is pure computation), and
-   its `DriverEntry` (`0x12466`) is `jmp`-maze obfuscated like the shell. Run it
-   under Unicorn too: a fake `DRIVER_OBJECT`, stub the `ntoskrnl` imports
-   (`IoCreateDevice`, `IoCreateSymbolicLink`, `RtlInitUnicodeString`,
-   `RtlQueryRegistryValues`, `IofCompleteRequest`), call `DriverEntry` to capture
-   `MajorFunction[IRP_MJ_DEVICE_CONTROL]`, then build an IRP + `IO_STACK_LOCATION`
-   for the IOCTL (METHOD_BUFFERED: challenge in `AssociatedIrp.SystemBuffer`) and
-   read the response back out. Wire it into `api_DeviceIoControl`.
-2. **Let the loader decrypt.** With a valid response it will fall into step 8.
-3. **Model the child.** `CreateProcess(ICD)` initialises a second memory image
+- **Steps 1–6** (CRT, C-DILLA set-up, the full anti-debug gauntlet).
+- **Step 7, the secdrv authentication — `tools/drm/secdrv.py`.** This was the
+  documented crux and it is solved. `SECDRV.SYS` (14 KB, imports only `Io*`/`Rtl*`
+  from `ntoskrnl`, no disk I/O) runs headless under its own Unicorn instance with
+  a fake `DRIVER_OBJECT` and stubbed ntoskrnl imports. `DriverEntry` (`0x12466`)
+  is emulated once to capture `MajorFunction[IRP_MJ_DEVICE_CONTROL]` (`0x10676`);
+  each call builds an IRP + `IO_STACK_LOCATION` and runs the dispatch, stopping at
+  `IofCompleteRequest` (fastcall) to read `IoStatus` + the response. Two things
+  mattered: `0xEF002407 & 3 == 3` is **METHOD_NEITHER** (input is
+  `Type3InputBuffer`, output is `Irp->UserBuffer` — *not* `SystemBuffer`); and
+  `KeTickCount` is a 3-dword `KSYSTEM_TIME` the driver reads with a stable-read
+  spin (`High1Time==High2Time`), so its variable needs its own zeroed region
+  clear of `NtBuildNumber`. The crypto worker (`0x10cbc` → `0x10da6`) reads `DR1`
+  as an anti-debug check; `0` is the correct clean-machine value. The loader now
+  **accepts the response and proceeds** (verification: before, it trapped at the
+  gate after ~10M insns; after, it runs ~132M insns deep into the shell). secdrv
+  is byte-identical across SafeDisc 1 titles, so this is reusable as-is.
+- **Software interrupts (`safedisc1.py` `_intr`/`_seh`).** The shell sprinkles
+  `int 1`/`int 3`/`icebp`; on a clean machine the fault reaches SafeDisc's own
+  SEH handler, which resumes after the trap (a debugger would consume it — that
+  is the check). We dispatch as the no-debugger case: resume past the trap.
+- **A real file model (`safedisc1.py`).** `GetModuleFileNameA(NULL)` returns the
+  loader; `CreateFileA`/`SetFilePointer`/`ReadFile`/`GetFileSize` are backed by
+  the real loader and ICD bytes, so the shell's self-reopen (it `SetFilePointer`s
+  to `EXE+0x44200`, the appended `"custom data"` block, and reads it) and the ICD
+  reads deliver true bytes instead of zeros.
+
+### The frontier: `.txt` reconstruction
+
+With all of the above, the loader reaches the shell's **code-reconstruction
+engine** and stops cleanly at `0x0040AAE2` (a `.txt` byte that reconstructed to
+junk). The engine is now fully mapped:
+
+- A command interpreter walks records keyed off the `"custom data"` payload and
+  calls a dispatcher (`0x415d10`): command `0x64` = nop, `0x65` → `0x415960`,
+  `0x66`/`0x67` → the patch engine `0x415a80`.
+- `0x415a80` wraps a `rep movsd` copy in `VirtualProtect` (`[0x435958]`, for
+  `0x67` = patch self) or routes through `WriteProcessMemory` (`[0x43595c]`, for
+  `0x66` = write the hollowed child). On this title it issues 13 `0x67` calls
+  rebuilding `.txt` page-by-page (`0x401000`…`0x40d800`).
+- Each page's plaintext is produced by a **per-page decrypt routine** (in the
+  interpreter above `0x415d10`) into a stack buffer, which `0x67` then copies in.
+  That decryptor is the one remaining gap: it currently yields junk, so the
+  rebuilt `.txt` is wrong and a later `call` into it faults. Finding its key
+  derivation from the `"custom data"` block is the next concrete step.
+
+### Then
+
+1. **Finish the page decryptor** so `.txt` reconstructs to real code; the shell
+   then runs its own reconstruction to completion.
+2. **Model the child.** `CreateProcess(ICD)` initialises a second memory image
    from the ICD's file layout; `WriteProcessMemory`/`ReadProcessMemory`/
-   `VirtualProtect` act on it; `GetThreadContext` returns `Eax` = entry and a PEB
-   pointer in `Ebx`; `SetThreadContext` records the OEP. After `ResumeThread`
-   the child image holds the decrypted program.
-4. **Rebuild the PE.** Reuse `emu_unpack.py`'s `find_iat`/`layout`/`write`: the
+   `VirtualProtect` act on it (the `0x66` path already targets it);
+   `GetThreadContext`/`SetThreadContext` carry the OEP. After `ResumeThread` the
+   child image holds the decrypted program.
+3. **Rebuild the PE.** Reuse `emu_unpack.py`'s `find_iat`/`layout`/`write`: the
    stripped imports come back as the runs of thunk addresses the decrypted code
    calls through, and a fresh import directory is appended. Output is an ordinary
    PE that `pe_analyze` and the lifters read like any other.
