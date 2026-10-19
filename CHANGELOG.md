@@ -5,6 +5,12 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- `lift32`: `fst st(i)`, the register form, lifted to nothing, silently. It
+  copies st(0) to st(i) without a pop; Shadows of the Empire keeps 1/z in st(1)
+  that way, so every projected y was multiplied by the 0 left there and all 3D
+  geometry drew on one screen row. New difftest case `fpu.fst-st1`.
+
 ### Added
 - disasm64: x86-64 function recovery for PE32+, so the 64-bit path no longer
   needs an IDA catalog. Seeds from `.pdata` primary entries (chained entries
