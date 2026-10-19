@@ -687,12 +687,66 @@ static __declspec(naked) void cb_tramp(void) {
     }
 }
 
+/* Native code reaching a function of a native module that runs lifted
+ * (native32_lift_in_native). cb_tramp is the Windows -> guest path: stack
+ * arguments and ecx in, eax out, everything else put back, which is the C ABI
+ * and right for a callback. A function inside the module owes the C ABI to
+ * nobody: hand-written asm and register conventions (Watcom) take arguments
+ * in any register and return them in any register. Bisecting with such a
+ * function in the lifted set reported it wrong whatever its lift did. So this
+ * path hands over all eight registers and the arithmetic flags, both ways:
+ * they go in from the trap's pushfd/pushad, and the lifted body's final values
+ * come back out through them (asm returns status in CF as often as in eax). */
+static __declspec(thread) uint32_t t_lin_va;
+
+static uint32_t __cdecl lin_run(uint32_t* blk) {
+    /* blk: pushad's edi esi ebp esp ebx edx ecx eax, pushfd's eflags, then
+     * [ret][args] */
+    recomp_func_t f = recomp_lookup(t_lin_va);
+    mach_enter();
+    regs_t saved;
+    regs_save(&saved);
+    g_esp -= BRIDGE_SLOTS * 4;
+    memcpy((void*)(uintptr_t)g_esp, blk + 10, BRIDGE_SLOTS * 4);
+    PUSH32(g_esp, RECOMP_RETADDR);
+    uint32_t before = g_esp;
+    g_edi = blk[0]; g_esi = blk[1]; g_ebp = blk[2]; g_ebx = blk[4];
+    g_edx = blk[5]; g_ecx = blk[6]; g_eax = blk[7];
+    f();
+    uint32_t purge = g_esp - before - 4;
+    blk[0] = g_edi; blk[1] = g_esi; blk[2] = g_ebp; blk[4] = g_ebx;
+    blk[5] = g_edx; blk[6] = g_ecx; blk[7] = g_eax;
+    blk[8] = (blk[8] & ~0x8D5u) |       /* CF PF AF ZF SF OF, from the lift */
+             (recomp_eflags(g_flag_k, g_flag_a, g_flag_b, g_flag_cf, (blk[8] >> 10) & 1) & 0x8D5u);
+    regs_load(&saved);
+    mach_leave();
+    /* A callee that pops its arguments (ret n): move the saved registers and
+     * the return address up over them, so the trampoline's popad, popfd and
+     * ret leave esp where the native caller expects it. */
+    if (purge) memmove((char*)blk + purge, blk, 10 * 4);
+    return purge;
+}
+
+static __declspec(naked) void lin_tramp(void) {
+    __asm {
+        pushfd
+        pushad                   ; every register, as the native caller left them
+        push esp                 ; the block
+        call lin_run             ; -> bytes the callee popped
+        add  esp, 4
+        add  esp, eax            ; the block moved up by that much
+        popad                    ; the lifted body's registers
+        popfd                    ; and flags
+        ret
+    }
+}
+
 static LONG CALLBACK native32_veh(EXCEPTION_POINTERS* ep) {
     EXCEPTION_RECORD* er = ep->ExceptionRecord;
     uint32_t pc = (uint32_t)(uintptr_t)er->ExceptionAddress;
     if (er->ExceptionCode == EXCEPTION_ILLEGAL_INSTRUCTION && lifted_in_native(pc)) {
-        ep->ContextRecord->Eax = pc;            /* native code reached a lifted one */
-        ep->ContextRecord->Eip = (DWORD)(uintptr_t)cb_tramp;
+        t_lin_va = pc;                          /* native code reached a lifted one */
+        ep->ContextRecord->Eip = (DWORD)(uintptr_t)lin_tramp;
         return EXCEPTION_CONTINUE_EXECUTION;
     }
     /* An instruction fetch: Windows says so (8, execute). Wine on Apple
