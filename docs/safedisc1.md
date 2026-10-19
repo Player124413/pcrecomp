@@ -111,6 +111,39 @@ junk). The engine is now fully mapped:
   rebuilt `.txt` is wrong and a later `call` into it faults. Finding its key
   derivation from the `"custom data"` block is the next concrete step.
 
+### A reference oracle, from the VM (2026-10-19)
+
+The headless `.txt` decryptor was "unverifiable without a reference dump." We now
+have one, and it needed no disc check: the SafeDisc shell (`FS2000.EXE`)
+self-decrypts its own `.txt` **before** any ICD hollow or CD check, so running the
+game on the Win2000 box (see the `win2kdev` memory) and grabbing `FS2000.EXE`'s
+memory yields the correct plaintext. `tools/drm/safedisc1_dump.c grab FS2000.EXE
+shell.bin` does exactly that; the capture is in `work/safedisc1/`.
+
+Measured against that oracle (`work/safedisc1/cmp_pages.py`):
+
+- Every `.txt` page is encrypted in the file (entropy ~7.95) and real code in the
+  shell dump (~6.3–7.0). The emulator's final `.txt` is still ~7.97 — it
+  reconstructs only the first page (0x401000, already-cleartext bootstrap) and then
+  the per-page decryptor emits **garbage** for the rest.
+- The cipher is **not** a simple keystream: `file_txt XOR shell_txt` is ~7.95
+  (high) per page, so it is a real stream/block cipher, not a repeating XOR.
+- The key comes from the **"custom data"** block at file offset `0x44200`, which
+  begins with the ASCII `"custom data"` stored **reversed** (`61 74 61 64 20 6d 6f
+  74 73 75 63`), then a small header (`…01 00 00 00 09 04 00 00 68 00 …`).
+- The decryptor *code* runs correctly in the emulator (it is the same shell code);
+  it produces garbage because its **key input is wrong**. So the fix is not to
+  re-implement the cipher but to find what input the real decryptor consumes that
+  the emulator feeds wrong — the `"custom data"` bytes delivered by the file model,
+  the secdrv response, or a runtime value — by tracing the decryptor's reads in the
+  emulator and matching them to the state that yields `shell.bin`.
+
+Next concrete step: hook the emulator around the per-page decrypt routine (reached
+just before the dispatcher `0x415d10` / patch engine `0x415a80`; the copy-in is the
+`rep movsd` at `0x415AC8`), log its inputs for the first page that diverges from the
+oracle, and correct the emulator's delivery of that input. Then the shell runs to
+completion, and — with secdrv already answered headless — it decrypts the ICD.
+
 ### Then
 
 1. **Finish the page decryptor** so `.txt` reconstructs to real code; the shell
