@@ -668,6 +668,11 @@ One thing the licence cannot give you: rights to the software you point these
 tools at. Lifting a binary produces a derivative work of that binary, so the
 output carries whatever licence the original does. Own what you take apart.
 
+Everything in this repository is original work; no third-party source is
+vendored. capstone (BSD-3-Clause), pefile (MIT), Ghidra (Apache-2.0) and IDA
+are used as libraries or hosts under their own licences and are not
+redistributed here.
+
 ---
 
 *Built with stubbornness and too much coffee by [sp00nznet](https://github.com/sp00nznet)*
