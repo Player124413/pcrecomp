@@ -1640,6 +1640,13 @@ class Lifter:
                     lines.append(f"{{ float _v = (float)_st[0]; *(float*)ADDR({addr}) = _v; }} {comment}")
                 elif ops[0].size == 8:
                     lines.append(f"*(double*)ADDR({addr}) = _st[0]; {comment}")
+            elif ops:
+                # fst st(i): ST(i) <- ST(0), no pop. It used to lift to nothing,
+                # silently: Shadows of the Empire keeps 1/z in st(1) this way
+                # (fldz; fld; fdiv; fst st(1)), so every screen y was multiplied
+                # by the 0 left there and all 3D geometry collapsed onto one row.
+                i = ops[0].reg - X86_REG_ST0
+                lines.append(f"{{ _st[{i}] = _st[0]; g_st_i64[{i}] = g_st_i64[0]; }} {comment}")
 
         elif m in ('fistp', 'fist'):
             # Round by the control word (fp_to_int), not by C's truncating cast.
