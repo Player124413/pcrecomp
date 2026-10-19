@@ -6,6 +6,16 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- drm/safedisc1_dump.c: native Win2k/XP port of safedisc1_dump.py, for boxes too
+  old to run modern Python (our FS2000 box is Windows 2000). Single static exe
+  built with i686 mingw. Modes: launch+poll+dump, `attach` (dump an
+  already-running game, never launching), `launch`, and `list` (diagnostic process
+  table). Finds the process-hollowed child by matching the ICD's in-memory
+  SizeOfImage + decrypted-`.text` entropy -- NOT the entry point, which SafeDisc
+  restores only in memory (a latent mis-match bug the Python dumper shared). Two
+  field gotchas it encodes: the dumper must not launch-and-poll the game (its
+  memory reads trip SafeDisc's anti-debug and block decryption -- launch cleanly,
+  then `attach`), and the hollowed child is identified by SizeOfImage alone.
 - drm/secdrv.py: emulate SafeDisc's SECDRV.SYS headless to answer the loader's
   `DeviceIoControl(\\.\Secdrv, 0xEF002407)` authentication challenge — the
   documented crux of the SafeDisc 1 unwrap. The 14 KB driver runs under its own
