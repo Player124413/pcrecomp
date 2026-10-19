@@ -123,7 +123,7 @@ int main(void) {
         system("rm -rf /tmp/hleov && mkdir -p /tmp/hleov/game/maps /tmp/hleov/mod");
         /* Paths come back resolved (macOS's /tmp is /private/tmp), and a
          * case-insensitive disk (APFS) finds a file by the spelling asked. */
-        char root[1024], want[1100];
+        char root[4096], want[4200];                      /* realpath's buffer is PATH_MAX (fortified glibc checks) */
         if (!realpath("/tmp/hleov", root)) snprintf(root, sizeof root, "/tmp/hleov");
         f = fopen("/tmp/hleov/game/rules.ini", "w"); fputs("base", f); fclose(f);
         f = fopen("/tmp/hleov/game/maps/a.map", "w"); fputs("map", f); fclose(f);
