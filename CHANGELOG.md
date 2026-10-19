@@ -12,6 +12,11 @@ versions follow [SemVer](https://semver.org/).
   geometry drew on one screen row. New difftest case `fpu.fst-st1`.
 
 ### Added
+- native32: an import by ordinal can be shimmed, as `"<dll>#<ordinal>"`
+  (`"DPLAY.dll#2"`, DLL name in any case). Before, ordinal imports always
+  went to LoadLibrary, so one from a DLL modern Windows no longer has
+  (DirectX 3's `DPLAY.dll`) left the image unbound. The unresolved-import
+  message now prints the ordinal. Found on Twisted Metal. (#105)
 - `tools/drm/steamstub.py`: SteamStub 3.x (x86). The code key sits in the stub's
   own 0xF0-byte header, not in `steamdrm.dll`, so it unwraps without loading the
   DLL. Layout read from the stub's code on Star Wars: Shadows of the Empire
