@@ -148,6 +148,55 @@ class NEHeader:
     def total_relocs(self):
         return sum(len(s.relocations) for s in self.segments)
 
+    # Where this module's segment 1 sits in a multi-module numbering. 0 for a
+    # module lifted on its own; see renumber().
+    seg_base: int = 0
+
+    @property
+    def module_name(self):
+        """The module's own name: ordinal 0 of the resident name table."""
+        return self.resident_names[0][0] if self.resident_names else ''
+
+    def seg(self, index):
+        """Segment by (possibly renumbered) index, or None. Use this, never
+        `segments[index - 1]`: after renumber() the two disagree."""
+        i = index - self.seg_base
+        return self.segments[i - 1] if 1 <= i <= len(self.segments) else None
+
+    def renumber(self, base):
+        """Shift this module's segment numbers up by `base`.
+
+        Lifting several modules into one image (a host EXE plus the DLLs it
+        imports) needs one numbering: segment n of the second module becomes
+        base + n, so `segNNN_XXXX` names and SEG_n selectors cannot collide.
+        Everything that names one of this module's own segments moves together:
+        the segment indices, internal relocation targets, the entry table and
+        the header's CS/SS/DGROUP. Import relocations name another module and
+        are left alone; the lifter resolves those by ordinal.
+
+        A code map exported for this module stays keyed by its own NE numbers;
+        ne_decode.load_ida_data subtracts seg_base when it looks one up."""
+        if base == self.seg_base:
+            return self
+        d = base - self.seg_base
+        for s in self.segments:
+            s.index += d
+            for r in s.relocations:
+                if (r.flags & 3) == 0 and r.target_seg not in (0, 0xFF):
+                    r.target_seg += d
+        for e in self.entries:
+            if 1 <= e.segment < 0xFE:      # 0xFE: constant entry, no segment
+                e.segment += d
+        for attr in ('cs', 'ss', 'auto_data_seg'):
+            if getattr(self, attr):
+                setattr(self, attr, getattr(self, attr) + d)
+        self.seg_base = base
+        for cache in ('_internal_code_targets', '_entry_table_targets',
+                      '_offset_code_targets'):
+            if hasattr(self, cache):
+                delattr(self, cache)
+        return self
+
 
 def parse_ne(filepath: str) -> NEHeader:
     """Parse an NE executable file."""

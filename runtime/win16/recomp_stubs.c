@@ -70,14 +70,21 @@ void recomp_div0(const char *kind)
 /* ---- Indirect dispatch ----
  *
  * `call bx` and `call far [bp-4]` land here with a guest address that has to be
- * mapped back to a lifted function. That needs a (segment, offset) -> function
- * table, which gen_dispatch-style tooling builds from the lifted sources. Until
- * a project generates one, an indirect call is a stop, not a guess. */
+ * mapped back to a lifted function. tools/ne/gen_dispatch.py builds that table
+ * from the lifted sources as recomp_dispatch_lookup(); the weak default below
+ * stands in until a project generates one. A miss is a stop, not a guess. */
+__attribute__((weak)) int recomp_dispatch_lookup(CPU *cpu, uint16_t seg, uint16_t off)
+{
+    (void)cpu; (void)seg; (void)off;
+    return 0;
+}
+
 void dispatch_near(CPU *cpu, uint16_t seg, uint16_t off)
 {
     char buf[96];
-    (void)cpu;
-    snprintf(buf, sizeof buf, "near call to %u:%04X, no dispatch table built",
+    if (recomp_dispatch_lookup(cpu, seg, off))
+        return;
+    snprintf(buf, sizeof buf, "near call to %u:%04X has no lifted function",
              (unsigned)seg, (unsigned)off);
     die("indirect dispatch", buf);
 }
@@ -85,8 +92,9 @@ void dispatch_near(CPU *cpu, uint16_t seg, uint16_t off)
 void dispatch_far(CPU *cpu, uint16_t seg, uint16_t off)
 {
     char buf[96];
-    (void)cpu;
-    snprintf(buf, sizeof buf, "far call to %04X:%04X, no dispatch table built",
+    if (recomp_dispatch_lookup(cpu, seg, off))
+        return;
+    snprintf(buf, sizeof buf, "far call to %04X:%04X has no lifted function",
              (unsigned)seg, (unsigned)off);
     die("indirect dispatch", buf);
 }

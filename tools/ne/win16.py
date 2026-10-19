@@ -137,7 +137,7 @@ PURGE = {
     # unreadable, so every ball plotted as colour 0 (a black cat on black).
     # HMI Sound Operating System: PASCAL too -- the call sites push and never
     # 'add sp' afterwards.
-    ('SOSLIB03', 'SOSDIGIDETECTINIT'): 4, ('SOSLIB03', 'SOSDIGIUSERSERVICE'): 2,
+    ('SOSLIB03', 'SOSDIGIDETECTINIT'): 6, ('SOSLIB03', 'SOSDIGIUSERSERVICE'): 2,
     ('USER', 'GETCURSORPOS'): 4,        ('USER', 'BRINGWINDOWTOTOP'): 2,
     ('USER', 'CHECKDLGBUTTON'): 6,      ('USER', 'DESTROYICON'): 2,
     ('USER', 'ENABLEWINDOW'): 4,        ('USER', 'GETACTIVEWINDOW'): 0,
@@ -487,6 +487,35 @@ PURGE.update({
 _W, _D = 2, 4   # WORD-sized / DWORD-sized argument
 
 _PROTO = {
+    # ---- COMMDLG ---- each takes one far pointer to its struct
+    'COMMDLG.CHOOSECOLOR': [_D],
+    'COMMDLG.CHOOSEFONT': [_D],
+    'COMMDLG.GETOPENFILENAME': [_D],
+    'COMMDLG.GETSAVEFILENAME': [_D],
+    'COMMDLG.PRINTDLG': [_D],
+    # ---- first seen in Dogz ----
+    'GDI.MOVETOEX': [_W,_W,_W,_D],                    # hdc, x, y, POINT FAR*
+    # dwExStyle, class, title, dwStyle, x, y, cx, cy, parent, menu, hinst, lpParam
+    'USER.CREATEWINDOWEX': [_D,_D,_D,_D,_W,_W,_W,_W,_W,_W,_W,_D],
+    'USER.GETDLGCTRLID': [_W],
+    'USER.GLOBALADDATOM': [_D],
+    'USER.GLOBALDELETEATOM': [_W],
+    'USER.GLOBALGETATOMNAME': [_W,_D,_W],             # atom, buffer, size
+    # ---- first seen in Oddballz ----
+    'CTL3DV2.CTL3DCOLORCHANGE': [],
+    'CTL3DV2.CTL3DUNREGISTER': [_W],
+    # height, width, escapement, orientation, weight, then eight BYTE flags
+    # (each pushed as a word), then the face name
+    'GDI.CREATEFONT': [_W,_W,_W,_W,_W, _W,_W,_W,_W,_W,_W,_W,_W, _D],
+    'GDI.GETBKMODE': [_W],
+    'KERNEL.DEBUGBREAK': [],
+    'SHELL.REGCREATEKEY': [_D,_D,_D],                  # HKEY, subkey, HKEY FAR*
+    'SHELL.REGSETVALUE': [_D,_D,_D,_D,_D],             # HKEY, subkey, type, data, cb
+    'USER.ENABLESCROLLBAR': [_W,_W,_W],
+    'USER.LOADMENU': [_W,_D],
+    'USER.SHOWCURSOR': [_W],
+    'USER.SUBTRACTRECT': [_D,_D,_D],
+    'USER.UNREGISTERCLASS': [_D,_W],
     # ---- GDI ----
     'GDI.ARC': [_W,_W,_W,_W,_W,_W,_W,_W,_W],
     'GDI.COMBINERGN': [_W,_W,_W,_W],

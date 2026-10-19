@@ -222,7 +222,11 @@ class Lifter:
             fn = self.known_funcs[abs_t]
             self.func_calls.add(fn)
             return f'{fn}(cpu); return;'
-        return (f'recomp_dispatch(cpu, 0x{(abs_t >> 4) & 0xFFFF:X}, '
+        # No 16-bit mask on the paragraph: below 1 MB (every real-mode image) it
+        # changes nothing, and an NE module past 1 MB (Oddballz's 1.4 MB WAD)
+        # needs the high bits so ne_lift can turn the pair back into a segment
+        # offset -- masked, it came out as `0x-E8121` and did not compile.
+        return (f'recomp_dispatch(cpu, 0x{abs_t >> 4:X}, '
                 f'0x{abs_t & 0xF:X}); return;')
 
     def _tick_back_edge(self, inst, target):

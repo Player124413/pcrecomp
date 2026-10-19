@@ -20,6 +20,7 @@ The code map can also be supplied via the PCRECOMP_IDA_JSON environment
 variable.
 """
 
+import bisect
 import sys
 import os
 import struct
@@ -71,7 +72,7 @@ def build_reloc_map(seg: Segment, ne: NEHeader) -> dict:
             if r.target_seg == 0xFF:
                 desc = f"entry#{r.ordinal}"
             else:
-                target_seg = ne.segments[r.target_seg - 1] if r.target_seg <= len(ne.segments) else None
+                target_seg = ne.seg(r.target_seg)
                 if target_seg:
                     seg_type = 'CODE' if target_seg.is_code else 'DATA'
                     desc = f"seg{r.target_seg}:{r.target_off:04X} ({seg_type})"
@@ -124,6 +125,24 @@ def load_ida_data(ne: NEHeader, path: str = None) -> dict:
                 data = json.load(f)
         except (OSError, ValueError):
             data = {}
+    # The map is loaded by path, with nothing in it saying which binary it came
+    # from -- so decoding any OTHER NE picks up whatever map was pointed at and
+    # walks its instruction heads into a different program. Dogz's THINK.DLL
+    # aborted mid-decode that way under catz. Check the heads actually land
+    # inside this module's segments and ignore the map if they do not.
+    if data:
+        inside = outside = 0
+        for seg in ne.segments:
+            heads = (data.get(str(seg.index - ne.seg_base)) or {}).get('heads') or []
+            for h in heads:
+                if 0 <= h < len(seg.data):
+                    inside += 1
+                else:
+                    outside += 1
+        if outside > inside // 20:          # a few stragglers are normal
+            print('  code map does not match this module (%d/%d heads out of '
+                  'range); decoding without it' % (outside, inside + outside))
+            data = {}
     ne._ida_data = data
     return data
 
@@ -144,11 +163,36 @@ def collect_internal_code_targets(ne: NEHeader) -> dict:
             if r.src_type not in (3, 11):   # FAR_PTR / PTR48 only
                 continue
             tseg = r.target_seg
-            if tseg == 0xFF or not (1 <= tseg <= len(ne.segments)):
-                continue
-            if ne.segments[tseg - 1].is_code:
+            t = ne.seg(tseg) if tseg != 0xFF else None
+            if t is not None and t.is_code:
                 m.setdefault(tseg, set()).add(r.target_off)
     ne._internal_code_targets = m
+    return m
+
+
+def collect_offset_code_targets(ne: NEHeader) -> dict:
+    """Map (1-based code seg index) -> offsets named by OFFSET16/OFFSET32
+    internal relocations into a code segment.
+
+    Borland stores C++ catch-handler addresses this way, in a runtime-built EH
+    table, and nothing branches to them -- so without these every catch handler
+    stays unlifted and a thrown exception terminates the program instead of
+    being caught (Catz, init). Kept apart from collect_internal_code_targets
+    because an offset into a code segment can also name a CS-resident table:
+    fine to seed a function at (over-splitting is safe), wrong to resync the
+    linear sweep onto."""
+    cache = getattr(ne, '_offset_code_targets', None)
+    if cache is not None:
+        return cache
+    m = {}
+    for s in ne.segments:
+        for r in s.relocations:
+            if (r.flags & 3) != 0 or r.src_type not in (5, 13):
+                continue
+            t = ne.seg(r.target_seg) if r.target_seg != 0xFF else None
+            if t is not None and t.is_code and 0 <= r.target_off < t.actual_size:
+                m.setdefault(r.target_seg, set()).add(r.target_off)
+    ne._offset_code_targets = m
     return m
 
 
@@ -174,10 +218,8 @@ def collect_entry_table_targets(ne: NEHeader) -> dict:
     m = {}
 
     def add(seg_idx, off):
-        if seg_idx == 0xFF or not (1 <= seg_idx <= len(ne.segments)):
-            return
-        seg = ne.segments[seg_idx - 1]
-        if not seg.is_code or not (0 <= off < seg.actual_size):
+        seg = ne.seg(seg_idx) if seg_idx != 0xFF else None
+        if seg is None or not seg.is_code or not (0 <= off < seg.actual_size):
             return
         m.setdefault(seg_idx, set()).add(off)
 
@@ -249,10 +291,48 @@ def detect_functions(seg: Segment, instructions: list, forced_entries=None) -> l
                 if v >= 0x10 and v in valid:
                     starts.add(v)
 
+    # Jump/vtable tables stored IN this code segment: `jmp word cs:[bx+0x49DB]`
+    # (Borland's switch dispatch) reads its targets from data sitting between
+    # functions, so they are invisible to the branch/immediate seeding above --
+    # the target never becomes a lifted label and the indirect dispatch misses.
+    # Read the table straight out of the segment instead. No need to find the
+    # `cmp reg,N` bound: walk while each word is a valid instruction boundary
+    # and stop at the first that is not, which is where the table ends.
+    # Over-seeding is safe (basic-block model).
+    for inst in instructions:
+        if inst.mnemonic not in ('jmp', 'call'):
+            continue
+        opnd = inst.op1
+        if not opnd or opnd.type != OpType.MEM or opnd.size != 2:
+            continue
+        if not opnd.base and not opnd.index:
+            continue                       # absolute [addr], not a table walk
+        tbl = opnd.disp & 0xFFFF
+        for k in range(256):
+            p = tbl + 2 * k
+            if p + 2 > len(seg.data):
+                break
+            tgt = seg.data[p] | (seg.data[p + 1] << 8)
+            if tgt not in valid:
+                break
+            starts.add(tgt)
+
     # Far-call targets into this segment (only ones on instruction boundaries)
     for off in forced_entries:
         if off in valid:
             starts.add(off)
+
+    # The instruction after an unconditional transfer starts a new basic block:
+    # nothing falls into it, so it is either dead or reachable only by a
+    # computed jump. Borland's `call $+3` / `pop cx; add cx,3; jmp cx` idiom
+    # lands exactly there, and without a start the address has no lifted label
+    # -- on Catz the dispatch miss that followed leaked guest stack on every
+    # printf until SP wrapped.
+    for i, inst in enumerate(instructions):
+        if inst.mnemonic not in ('jmp', 'ret', 'retf', 'iret'):
+            continue
+        if i + 1 < len(instructions) and inst_off[i + 1] in valid:
+            starts.add(inst_off[i + 1])
 
     # Always capture leading code
     starts.add(inst_off[0])
@@ -292,7 +372,7 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
     # If IDA exported accurate instruction heads for this segment, decode at
     # exactly those offsets. This eliminates linear-sweep desync on data-in-code
     # (every head is a true instruction boundary IDA already verified).
-    seg_ida = load_ida_data(ne).get(str(seg.index))
+    seg_ida = load_ida_data(ne).get(str(seg.index - ne.seg_base))
     if seg_ida and seg_ida.get('heads'):
         instructions = []
         for h in seg_ida['heads']:
@@ -358,9 +438,91 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
             resync = grown
             instructions = sweep(resync)
 
-    # Post-process: enhance FPU instructions with proper mnemonics
-    # The base decoder's ESC handler reads ModR/M to advance position but
-    # doesn't store the result. We re-decode it here from raw bytes.
+    _fpu_fixup(instructions)
+
+    forced_entries = set(collect_internal_code_targets(ne).get(seg.index, set()))
+    # What Windows calls: header CS:IP + every exported entry-table slot.
+    forced_entries |= collect_entry_table_targets(ne).get(seg.index, set())
+    forced_entries |= collect_offset_code_targets(ne).get(seg.index, set())
+    if seg_ida and seg_ida.get('functions'):
+        forced_entries.update(seg_ida['functions'])  # authoritative IDA entries
+
+    # A relocation that names an entry in this segment is an entry by
+    # definition, but a code map does not always mark it as a head -- a C++
+    # catch handler reached only through a runtime-built EH table looks like
+    # data to a static sweep. Decode at those offsets too; the rest of the
+    # function follows from the heads already found.
+    # ponytail: entry points only. Recovering every un-decoded relative BRANCH
+    # target as well was tried on Catz and reverted -- it re-synced through
+    # enough data-as-code to mis-split real functions and hung LibMain.
+    # A run decoded from one entry must not swallow another: forced entries can
+    # point into data (a table of far pointers), and the garbage decoded there
+    # ran over a real entry one byte on. Oddballz seg 7: `00 45 55` read as
+    # `add [di+0x55], al` covered 0x427A, the `inc bp` of a far prologue that
+    # IDA's heads also missed, so the function was never lifted and every call
+    # to it missed at run time. Stop short of any entry, the same way the
+    # linear sweep resyncs onto one.
+    entry_set = sorted(a for a in forced_entries if 0 <= a < len(seg.data))
+
+    def straddles(pos, length):
+        i = bisect.bisect_right(entry_set, pos)
+        return i < len(entry_set) and entry_set[i] < pos + length
+
+    def recover(addrs, have):
+        for off in sorted(a for a in addrs if 0 <= a < len(seg.data) and a not in have):
+            decoder.pos = off
+            for _ in range(512):
+                pos = decoder.pos
+                if pos >= len(seg.data) or pos in have:
+                    break
+                inst = decoder.decode_one()
+                if inst is None or straddles(pos, max(inst.length, 1)):
+                    break
+                instructions.append(inst)
+                have.update(range(pos, pos + max(inst.length, 1)))
+                if inst.mnemonic in ('ret', 'retf', 'iret', 'jmp'):
+                    break
+
+    # Every BYTE already decoded, not just instruction starts: a forced entry
+    # pointing into the middle of an instruction must not decode from there, or
+    # both readings are emitted (on Catz a stray `inc word [bx+si]` from inside
+    # a far call walked over the ball rotation's sin table).
+    have = set()
+    for _i in instructions:
+        _o = _i.offset - seg.file_offset
+        have.update(range(_o, _o + max(_i.length, 1)))
+    recover(forced_entries, have)
+    _fpu_fixup(instructions)   # recover() may have added more ESC opcodes
+    instructions.sort(key=lambda i: i.offset)
+
+    # Drop anything that starts INSIDE a preceding FWAIT-prefixed instruction.
+    # The sweep folds a leading 0x9B into the x87 op, but recover() can decode
+    # the bare ESC one byte later, so the same op lands twice and is lifted
+    # twice: on Catz the doubled fmul squared the scale factors, the doubled
+    # fstp stored the unscaled value on top, and every ball ended up 256x off
+    # screen.
+    deduped = []
+    for inst in instructions:
+        prev = deduped[-1] if deduped else None
+        if (prev is not None
+                and prev.raw and prev.raw[0] == 0x9B
+                and prev.offset + 1 == inst.offset
+                and prev.offset + prev.length == inst.offset + inst.length):
+            continue                        # the bare ESC behind an FWAIT
+        deduped.append(inst)
+    instructions = deduped
+
+    functions = detect_functions(seg, instructions, forced_entries)
+
+    return instructions, functions, reloc_map
+
+
+def _fpu_fixup(instructions):
+    """Give x87 instructions real mnemonics and operands.
+
+    The base decoder's ESC handler reads ModR/M to advance position but doesn't
+    store the result, so it is re-decoded here from raw bytes. Idempotent: an
+    instruction already fixed no longer starts with esc_/fpu_."""
     EA_BASES = [
         ('bx', 'si'), ('bx', 'di'), ('bp', 'si'), ('bp', 'di'),
         ('si', ''),   ('di', ''),   ('bp', ''),   ('bx', ''),
@@ -427,15 +589,6 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
                 inst.mnemonic = format_fpu(fpu)
                 inst.op1 = mem_op  # Set to decoded memory operand or None for register ops
                 inst.op2 = None
-
-    forced_entries = set(collect_internal_code_targets(ne).get(seg.index, set()))
-    # What Windows calls: header CS:IP + every exported entry-table slot.
-    forced_entries |= collect_entry_table_targets(ne).get(seg.index, set())
-    if seg_ida and seg_ida.get('functions'):
-        forced_entries.update(seg_ida['functions'])  # authoritative IDA entries
-    functions = detect_functions(seg, instructions, forced_entries)
-
-    return instructions, functions, reloc_map
 
 
 def print_segment_disasm(seg: Segment, ne: NEHeader):
