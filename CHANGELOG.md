@@ -274,6 +274,9 @@ versions follow [SemVer](https://semver.org/).
   runtime gap). `HLE_FILETRACE=1` logs the data files a title opens. (#45)
 
 ### Fixed
+- bin2iso: Mode 2 Form 1 (CD-ROM XA) data tracks convert correctly; the
+  header size is read from each sector's mode byte instead of assumed to be
+  Mode 1's 16 bytes. Found on Twisted Metal (Japan). (#104)
 - native32: a function run lifted inside a native module (`native32_lift_in_native`)
   gets every register and the arithmetic flags from its native caller, and hands
   its own back. It went through the callback trampoline, which passes stack
