@@ -11,6 +11,7 @@
 #define RECOMP_TYPES_H
 
 #include <stdint.h>
+#include <stddef.h>   /* ptrdiff_t (g_mem_base); MSVC pulls it in transitively, gcc/clang do not */
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -18,6 +19,17 @@
 
 #ifdef _MSC_VER
 #include <intrin.h>
+#elif defined(__i386__) || defined(__x86_64__)
+#include <x86intrin.h>   /* __rdtsc, as <intrin.h> gives MSVC */
+#else
+/* Not an x86 host (arm64): rdtsc reads a monotonic nanosecond count, a
+ * counter that rises steadily, which is all a game times with it. */
+#include <time.h>
+static inline uint64_t __rdtsc(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
 #endif
 
 /* ============================================================
@@ -126,6 +138,8 @@ extern const uint32_t recomp_dispatch_count;
 /* MMX file is global too. The lifter emits _mm[n] (see lift32.MMX_REGS), so the
  * alias has to exist alongside the others or every MMX body fails to compile. */
 #define _mm g_mm
+/* And the SSE file (lift32_sse.py emits _xmm[n]). */
+#define _xmm g_xmm
 #define _seg_cs g_seg_cs
 #define _seg_ds g_seg_ds
 #define _seg_es g_seg_es
@@ -164,6 +178,12 @@ extern ptrdiff_t g_mem_base;
 /* Guest VAs ARE host addresses (a 32-bit host mapping each module at its own
  * base): nothing to add, and no global to reload on every access. */
 #define ADDR(va)     ((uintptr_t)(uint32_t)(va))
+#elif defined(RECOMP_MEM_BASE)
+/* The guest's memory at a host address fixed when built (a 64-bit host; the
+ * host maps it there and sets g_mem_base to match): a constant to add, where
+ * g_mem_base would be reloaded after every store the compiler cannot prove
+ * misses it. */
+#define ADDR(va)     ((uintptr_t)(uint32_t)(va) + (uintptr_t)(RECOMP_MEM_BASE))
 #else
 #define ADDR(va)     ((uintptr_t)(uint32_t)(va) + g_mem_base)
 #endif
@@ -175,6 +195,26 @@ extern uint32_t g_fs_base;
 extern uint32_t g_gs_base;
 #define FS_BASE  g_fs_base
 #define GS_BASE  g_gs_base
+
+/* DOS-extender hooks: what Lifter(dos=True) emits for int, port I/O, cli/sti,
+ * hlt and segment loads (tools/lift/lift32.py _lift_dos). A DOS host such as
+ * runtime/dos32 defines them; nothing else references them. Under DOS/4GW es
+ * is a real selector (the PSP, the environment), so es: overrides get a base. */
+extern uint32_t g_es_base;
+#define ES_BASE  g_es_base
+void     recomp_int(int n);
+uint8_t  recomp_in8(uint32_t port);
+uint16_t recomp_in16(uint32_t port);
+uint32_t recomp_in32(uint32_t port);
+void     recomp_out8(uint32_t port, uint8_t v);
+void     recomp_out16(uint32_t port, uint16_t v);
+void     recomp_out32(uint32_t port, uint32_t v);
+void     recomp_ins(uint32_t port, uint32_t va, int size, uint32_t count, int dir);
+void     recomp_outs(uint32_t port, uint32_t va, int size, uint32_t count, int dir);
+void     recomp_cli(void);
+void     recomp_sti(void);
+void     recomp_hlt(void);
+void     recomp_set_seg(int sreg, uint32_t selector);
 
 #define MEM8(addr)   (*(volatile uint8_t  *)ADDR(addr))
 #define MEM16(addr)  (*(volatile uint16_t *)ADDR(addr))
@@ -194,6 +234,24 @@ static inline void MEMSET32(void* dst, uint32_t val, uint32_t count) {
 static inline void MEMSET16(void* dst, uint16_t val, uint32_t count) {
     uint16_t* p = (uint16_t*)dst;
     for (uint32_t i = 0; i < count; i++) p[i] = val;
+}
+
+/* `rep movs`: n elements of esz bytes, from esi to edi, walking up (df > 0)
+ * or down from there. A CPU copies one element at a time, so when the
+ * destination starts inside what is still to be read, the copy reads its
+ * own output: `rep movsd` from p to p+12 repeats p's 12 bytes along the
+ * buffer, and Red Alert 2's Tesla bolt starts its three strands that way.
+ * memmove would copy as if through a temporary, so it serves every other
+ * case and only that one walks element by element. */
+static inline void recomp_rep_movs(uint32_t edi, uint32_t esi, uint32_t n, uint32_t esz, int df) {
+    uint32_t b = n * esz;
+    if (df > 0 ? edi - esi >= b : esi - edi >= b) {
+        if (df > 0) memmove((void*)ADDR(edi), (void*)ADDR(esi), b);
+        else memmove((void*)ADDR(edi - b + esz), (void*)ADDR(esi - b + esz), b);
+        return;
+    }
+    for (uint32_t i = 0; i < n; i++, edi += df * esz, esi += df * esz)
+        memcpy((void*)ADDR(edi), (void*)ADDR(esi), esz);
 }
 
 /* ============================================================
@@ -340,17 +398,32 @@ enum {
     FK_EFLAGS
 };
 
+/* A NARROW setter's kind carries its left-align shift (24 for 8-bit, 16 for
+ * 16-bit) in bits 8 and up. CF, ZF, SF and OF come out of the left-aligned
+ * operands at 32 bits unchanged (lift32's _flag_capture); PF and AF are read
+ * off the result's LOW byte, and only the shift says where that byte is. The
+ * lifter knows the width statically, but a jcc at a join point reads the kind
+ * at runtime, and there `fnstsw ax; test ah, 5; jp` -- MSVC's `x < 0.0` --
+ * needs the parity of AH. Every reader masks the kind with FK_KIND. */
+#define FK_NARROW(k, shift) ((uint32_t)(k) | ((uint32_t)(shift) << 8))
+#define FK_KIND(k)          ((k) & 0xFFu)
+#define FK_SHIFT(k)         ((k) >> 8)
+
 enum {
     CC_E = 0, CC_NE, CC_S, CC_NS, CC_G, CC_GE, CC_L, CC_LE,
-    CC_A, CC_AE, CC_B, CC_BE, CC_O, CC_NO
+    CC_A, CC_AE, CC_B, CC_BE, CC_O, CC_NO, CC_P, CC_NP
 };
 
-static inline int recomp_cond(uint32_t kind, uint32_t a, uint32_t b, int cc) {
-    uint32_t r;
-    int zf, sf, cf, of;
+static inline uint32_t recomp_parity8(uint8_t v);
 
+static inline int recomp_cond(uint32_t kind, uint32_t a, uint32_t b, int cc) {
+    uint32_t r, sh = FK_SHIFT(kind);
+    int zf, sf, cf, of, pf;
+
+    kind = FK_KIND(kind);
     if (kind == FK_EFLAGS) {
         cf = (int)(a & 1u);
+        pf = (int)((a >> 2) & 1u);
         zf = (int)((a >> 6) & 1u);
         sf = (int)((a >> 7) & 1u);
         of = (int)((a >> 11) & 1u);
@@ -361,11 +434,12 @@ static inline int recomp_cond(uint32_t kind, uint32_t a, uint32_t b, int cc) {
         int32_t v = (int32_t)a;          /* -1 less, 0 equal, 1 greater, 2 unordered */
         if (v == 2) {                    /* NaN: ZF = PF = CF = 1, as fcomi/sahf leave them */
             switch (cc) {
-            case CC_E: case CC_B: case CC_BE: return 1;
-            default:                          return 0;
+            case CC_E: case CC_B: case CC_BE: case CC_P: return 1;
+            default:                                     return 0;
             }
         }
         switch (cc) {
+        case CC_NP:               return 1;
         case CC_E:                return v == 0;
         case CC_NE:               return v != 0;
         case CC_B:  case CC_L:    return v <  0;
@@ -403,6 +477,7 @@ static inline int recomp_cond(uint32_t kind, uint32_t a, uint32_t b, int cc) {
     }
     zf = (r == 0);
     sf = (int)(r >> 31);
+    pf = (int)recomp_parity8((uint8_t)(r >> sh));
 
 decide:
     switch (cc) {
@@ -420,6 +495,8 @@ decide:
     case CC_BE:  return cf || zf;
     case CC_O:   return of;
     case CC_NO:  return !of;
+    case CC_P:   return pf;
+    case CC_NP:  return !pf;
     }
     return 0;
 }
@@ -432,7 +509,7 @@ decide:
 
 static inline int recomp_cond_cf(uint32_t kind, uint32_t a, uint32_t b, int cc,
                                  uint32_t cf) {
-    if ((kind == FK_INC || kind == FK_DEC) &&
+    if ((FK_KIND(kind) == FK_INC || FK_KIND(kind) == FK_DEC) &&
         (cc == CC_B || cc == CC_AE || cc == CC_A || cc == CC_BE)) {
         int zf = recomp_cond(kind, a, b, CC_E);
         switch (cc) {
@@ -449,7 +526,7 @@ static inline int recomp_cond_cf(uint32_t kind, uint32_t a, uint32_t b, int cc,
  * not write `_cf`), otherwise the `_cf` the instruction kept (adc, sbb, shifts,
  * logic ops, inc/dec, popfd/sahf). The lifter's precise_carry option. */
 static inline uint32_t recomp_carry(uint32_t kind, uint32_t a, uint32_t b, uint32_t cf) {
-    switch (kind) {
+    switch (FK_KIND(kind)) {
     case FK_ADD: return a + b < a;
     case FK_CMP: return a < b;
     default:     return cf;
@@ -501,8 +578,10 @@ static inline uint32_t recomp_flags_pack(uint32_t r, uint32_t cf, uint32_t af,
  */
 static inline uint32_t recomp_eflags(uint32_t kind, uint32_t a, uint32_t b,
                                      uint32_t cf_in, int df) {
-    uint32_t r, e;
+    uint32_t r, e, sh = FK_SHIFT(kind);
     uint32_t cf = cf_in & 1u, of = 0, af = 0;
+
+    kind = FK_KIND(kind);
 
     if (kind == FK_EFLAGS) {
         /* Already a word. DF still comes from `_df`: a CLD after the POPFD
@@ -525,7 +604,7 @@ static inline uint32_t recomp_eflags(uint32_t kind, uint32_t a, uint32_t b,
         r  = a + b;
         if (kind == FK_ADD) cf = (r < a);
         of = (~(a ^ b) & (a ^ r)) >> 31;
-        af = ((a ^ b ^ r) >> 4) & 1u;
+        af = ((a ^ b ^ r) >> (sh + 4)) & 1u;
         break;
     case FK_TEST:
         /* and/or/xor/test clear CF (the lifter stores that); a shift leaves
@@ -547,11 +626,13 @@ static inline uint32_t recomp_eflags(uint32_t kind, uint32_t a, uint32_t b,
         r  = a - b;
         if (kind == FK_CMP) cf = (a < b);
         of = ((a ^ b) & (a ^ r)) >> 31;
-        af = ((a ^ b ^ r) >> 4) & 1u;
+        af = ((a ^ b ^ r) >> (sh + 4)) & 1u;
         break;
     }
 
     e = recomp_flags_pack(r, cf, af, of);
+    if (sh)                               /* narrow: PF of the low byte, at bit sh */
+        e = (e & ~4u) | (recomp_parity8((uint8_t)(r >> sh)) << 2);
     if (df < 0) e |= 0x400u;              /* DF */
     return e;
 }
@@ -772,27 +853,164 @@ static inline uint64_t mmx_pcmpgtw(uint64_t a, uint64_t b) {
     for (int i = 0; i < 4; i++) r |= MM_PUT_W(i, MM_W(a,i) > MM_W(b,i) ? 0xFFFF : 0);
     return r;
 }
+static inline uint64_t mmx_pcmpeqd(uint64_t a, uint64_t b) {
+    return MM_PUT_D(0, MM_D(a,0) == MM_D(b,0) ? -1 : 0) | MM_PUT_D(1, MM_D(a,1) == MM_D(b,1) ? -1 : 0);
+}
+static inline uint64_t mmx_pcmpgtd(uint64_t a, uint64_t b) {
+    return MM_PUT_D(0, MM_D(a,0) > MM_D(b,0) ? -1 : 0) | MM_PUT_D(1, MM_D(a,1) > MM_D(b,1) ? -1 : 0);
+}
+
+/* Bytes, and the unsigned-saturating forms. A software renderer's translucency
+ * is one paddusb per pixel: the texel's colour added to the screen's, each
+ * channel stopping at 255. */
+#define MM_B(v, i)     ((int8_t)((uint64_t)(v) >> ((i) * 8)))
+#define MM_UB(v, i)    ((uint8_t)((uint64_t)(v) >> ((i) * 8)))
+#define MM_UW(v, i)    ((uint16_t)((uint64_t)(v) >> ((i) * 16)))
+#define MM_PUT_B(i, x) ((uint64_t)(uint8_t)(x) << ((i) * 8))
+#define MMX_LANES(n, put, expr) do { for (int i = 0; i < (n); i++) r |= put(i, (expr)); } while (0)
+static inline int mmx_clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+static inline uint64_t mmx_paddb(uint64_t a, uint64_t b)   { uint64_t r = 0; MMX_LANES(8, MM_PUT_B, MM_UB(a,i) + MM_UB(b,i)); return r; }
+static inline uint64_t mmx_psubb(uint64_t a, uint64_t b)   { uint64_t r = 0; MMX_LANES(8, MM_PUT_B, MM_UB(a,i) - MM_UB(b,i)); return r; }
+static inline uint64_t mmx_paddsb(uint64_t a, uint64_t b)  { uint64_t r = 0; MMX_LANES(8, MM_PUT_B, mmx_clamp(MM_B(a,i) + MM_B(b,i), -128, 127)); return r; }
+static inline uint64_t mmx_psubsb(uint64_t a, uint64_t b)  { uint64_t r = 0; MMX_LANES(8, MM_PUT_B, mmx_clamp(MM_B(a,i) - MM_B(b,i), -128, 127)); return r; }
+static inline uint64_t mmx_paddusb(uint64_t a, uint64_t b) { uint64_t r = 0; MMX_LANES(8, MM_PUT_B, mmx_clamp(MM_UB(a,i) + MM_UB(b,i), 0, 255)); return r; }
+static inline uint64_t mmx_psubusb(uint64_t a, uint64_t b) { uint64_t r = 0; MMX_LANES(8, MM_PUT_B, mmx_clamp(MM_UB(a,i) - MM_UB(b,i), 0, 255)); return r; }
+static inline uint64_t mmx_paddusw(uint64_t a, uint64_t b) { uint64_t r = 0; MMX_LANES(4, MM_PUT_W, mmx_clamp(MM_UW(a,i) + MM_UW(b,i), 0, 65535)); return r; }
+static inline uint64_t mmx_psubusw(uint64_t a, uint64_t b) { uint64_t r = 0; MMX_LANES(4, MM_PUT_W, mmx_clamp(MM_UW(a,i) - MM_UW(b,i), 0, 65535)); return r; }
+static inline uint64_t mmx_pcmpeqb(uint64_t a, uint64_t b) { uint64_t r = 0; MMX_LANES(8, MM_PUT_B, MM_UB(a,i) == MM_UB(b,i) ? 0xFF : 0); return r; }
+static inline uint64_t mmx_pcmpgtb(uint64_t a, uint64_t b) { uint64_t r = 0; MMX_LANES(8, MM_PUT_B, MM_B(a,i) > MM_B(b,i) ? 0xFF : 0); return r; }
+/* Signed words to signed bytes with saturation, a's elements low. */
+static inline uint64_t mmx_packsswb(uint64_t a, uint64_t b) {
+    uint64_t r = 0;
+    MMX_LANES(4, MM_PUT_B, mmx_clamp(MM_W(a,i), -128, 127));
+    for (int i = 0; i < 4; i++) r |= MM_PUT_B(4 + i, mmx_clamp(MM_W(b,i), -128, 127));
+    return r;
+}
+
+/* ============================================================
+ * SSE / SSE2
+ *
+ * Eight 128-bit registers, global like the rest of the register file; the
+ * lifter emits _xmm[n] (tools/lift/lift32_sse.py has the instruction side).
+ * Lanes are read through the union, so a register holds whatever bits were
+ * put in it and a float lane never passes through the x87.
+ *
+ * MXCSR is kept for ldmxcsr/stmxcsr and its rounding field drives cvtss2si,
+ * cvtsd2si and cvtps2pi. Exceptions stay masked, FTZ/DAZ are not modelled.
+ * ============================================================ */
+
+typedef union {
+    float    f32[4];
+    double   f64[2];
+    uint64_t u64[2];
+    uint32_t u32[4];
+    int32_t  i32[4];
+    uint16_t u16[8];
+    int16_t  i16[8];
+    uint8_t  u8[16];
+} xmm_t;
+
+extern xmm_t    g_xmm[8];
+extern uint32_t g_mxcsr;
+
+static inline xmm_t xmm_ld(uint32_t a) { xmm_t v; memcpy(&v, (const void*)ADDR(a), 16); return v; }
+static inline void  xmm_st(uint32_t a, xmm_t v) { memcpy((void*)ADDR(a), &v, 16); }
+static inline float    sse_f32(uint32_t u) { float f; memcpy(&f, &u, 4); return f; }
+static inline uint32_t sse_u32(float f) { uint32_t u; memcpy(&u, &f, 4); return u; }
+static inline double   sse_f64(uint64_t u) { double d; memcpy(&d, &u, 8); return d; }
+static inline uint64_t sse_u64(double d) { uint64_t u; memcpy(&u, &d, 8); return u; }
+
+/* float/double -> int32 as cvt(t)ss2si does: NaN or out of range gives the
+ * "integer indefinite" 0x80000000. Rounding is MXCSR's (bits 13-14), or
+ * toward zero for the cvtt forms. */
+static inline int32_t sse_cvt_i32(double v, int chop) {
+    if (!chop)
+        switch ((g_mxcsr >> 13) & 3) {
+        case 0: v = nearbyint(v); break;            /* the host's default: nearest-even */
+        case 1: v = floor(v); break;
+        case 2: v = ceil(v); break;
+        default: v = trunc(v); break;
+        }
+    if (!(v > -2147483649.0 && v < 2147483648.0)) return (int32_t)0x80000000u;
+    return (int32_t)v;
+}
+
+/* minss/maxss: the SECOND operand whenever the compare is false, NaN or
+ * equal (+0 vs -0) included. A C fminf/fmaxf would not. */
+static inline float  sse_minf(float a, float b) { return a < b ? a : b; }
+static inline float  sse_maxf(float a, float b) { return a > b ? a : b; }
+static inline double sse_mind(double a, double b) { return a < b ? a : b; }
+static inline double sse_maxd(double a, double b) { return a > b ? a : b; }
+
+/* comiss/ucomiss/comisd/ucomisd and fcomi: the EFLAGS word, ZF PF CF, with
+ * OF SF AF clear. Unordered sets all three. */
+#define SSE_COMI(a, b) ((a) < (b) ? 0x01u : (a) > (b) ? 0x00u : (a) == (b) ? 0x40u : 0x45u)
+
+/* cmpXXps/ss predicates 0-7: eq lt le unord neq nlt nle ord. */
+static inline uint32_t sse_cmp_pred(double a, double b, int p) {
+    int r;
+    switch (p & 7) {
+    case 0: r = a == b; break;
+    case 1: r = a < b; break;
+    case 2: r = a <= b; break;
+    case 3: r = a != a || b != b; break;
+    case 4: r = !(a == b); break;
+    case 5: r = !(a < b); break;
+    case 6: r = !(a <= b); break;
+    default: r = a == a && b == b; break;
+    }
+    return r ? 0xFFFFFFFFu : 0;
+}
+
 /* ============================================================
  * FPU Stack Helpers
  * ============================================================ */
 
+/* The x87 register is 80 bits with a 64-bit mantissa; ours is a double with 53.
+ * That is invisible for arithmetic but not for `fild qword / fistp qword`, the
+ * era's idiom for moving 8 bytes (a packed x,y pair, a 64-bit counter): through
+ * a double, a large high dword rounds away the low bits. Nocturne's clipper
+ * copies vertices that way and got x = -20/65536 where the original had 0, then
+ * filled a 65535-pixel span. So each slot shadows the exact int64 `fild qword`
+ * loaded, and `fistp qword` stores the shadow while the slot's double still
+ * equals it (nothing has computed on it since).
+ *
+ * selectany/weak: one shared instance, defined by the header itself, so no
+ * project runtime has to grow a definition for it. */
+#if defined(_MSC_VER)
+#define RECOMP_SHARED_DATA __declspec(selectany)
+#else
+#define RECOMP_SHARED_DATA __attribute__((weak))
+#endif
+RECOMP_SHARED_DATA int64_t g_st_i64[8] = {0};
+
 static inline void fp_push_impl(double* st, int* top, double val) {
     /* Shift stack down, push new value */
-    for (int i = 7; i > 0; i--) st[i] = st[i-1];
+    for (int i = 7; i > 0; i--) { st[i] = st[i-1]; g_st_i64[i] = g_st_i64[i-1]; }
     st[0] = val;
+    g_st_i64[0] = 0;
     (*top)++;
 }
 
 static inline double fp_pop_impl(double* st, int* top) {
     double val = st[0];
-    for (int i = 0; i < 7; i++) st[i] = st[i+1];
+    for (int i = 0; i < 7; i++) { st[i] = st[i+1]; g_st_i64[i] = g_st_i64[i+1]; }
     st[7] = 0.0;
+    g_st_i64[7] = 0;
     (*top)--;
     return val;
 }
 
 #define fp_push(val) fp_push_impl(_st, &_fp_top, (val))
 #define fp_pop()     fp_pop_impl(_st, &_fp_top)
+
+/* fild qword: push with the exact value shadowed. */
+#define fp_push_i64(v) do { int64_t _pv = (int64_t)(v); \
+    fp_push((double)_pv); g_st_i64[0] = _pv; } while (0)
+/* fxch st(i), keeping each slot's shadow with its value. */
+#define fp_xch(i) do { double _t = _st[0]; _st[0] = _st[i]; _st[i] = _t; \
+    int64_t _ti = g_st_i64[0]; g_st_i64[0] = g_st_i64[i]; g_st_i64[i] = _ti; } while (0)
 
 /* fist/fistp round by the control word's RC field (bits 10-11), not by C's
  * truncating cast. MSVC's __ftol sets chop before its fistp, so a plain cast
@@ -808,6 +1026,11 @@ static inline double fp_round_cw(double v, uint16_t cw) {
     }
 }
 #define fp_to_int(v) fp_round_cw((v), _fpu_cw)
+
+/* fistp qword: the exact shadow while st0 is still the value fild loaded. */
+static inline int64_t fp_st0_to_i64(double v0, int64_t shadow, uint16_t cw) {
+    return (v0 == (double)shadow) ? shadow : (int64_t)fp_round_cw(v0, cw);
+}
 
 /* The 80-bit extended format, for `fld/fstp xword`. The model's stack is
  * double, so a load rounds to double and a store widens. The CRT keeps 2*pi
@@ -840,12 +1063,23 @@ static inline void fp_st80(uint8_t* p, double v) {
  * CPUID stub
  * ============================================================ */
 
+/* Feature bits the guest may see, ANDed into leaf 1 (edx/ecx) and leaf
+ * 0x80000001 (edx: 3DNow!). All ones by default. Libraries that dispatch on
+ * CPUID -- D3DX above all -- pick SSE/3DNow! paths on a modern host, and the
+ * global-register lifter does not implement most of those instructions; a
+ * host that clears the bits gets the x87 paths instead (The Movies: 16,977
+ * unimplemented SIMD sites against a handful of x87 ones). */
+RECOMP_WEAK uint32_t g_cpuid_edx1 = 0xFFFFFFFFu, g_cpuid_ecx1 = 0xFFFFFFFFu;
+RECOMP_WEAK uint32_t g_cpuid_edx_ext = 0xFFFFFFFFu;
+
 static inline void CPUID_impl(uint32_t eax_val, uint32_t ebx_val, uint32_t ecx_val, uint32_t edx_val) {
-    /* Return something reasonable for a Pentium III era check */
 #ifdef _MSC_VER
     int info[4];
-    __cpuid(info, eax_val);
+    __cpuidex(info, eax_val, ecx_val);
     g_eax = info[0]; g_ebx = info[1]; g_ecx = info[2]; g_edx = info[3];
+    if (eax_val == 1) { g_edx &= g_cpuid_edx1; g_ecx &= g_cpuid_ecx1; }
+    if (eax_val == 0x80000001u) g_edx &= g_cpuid_edx_ext;
+    (void)ebx_val; (void)edx_val;
 #else
     (void)eax_val; (void)ebx_val; (void)ecx_val; (void)edx_val;
 #endif
@@ -894,10 +1128,20 @@ recomp_func_t recomp_lookup_import(uint32_t va);    /* import bridges */
 #define RECOMP_RETADDR 0xDEAD0000u
 #endif
 
+/* Flags cross every transfer, as on the CPU: each call and tail hands the
+ * caller's flags over (RECOMP_FLAGS_OUT), every function starts from them
+ * (RECOMP_ENTER), and `ret` hands the callee's back. Without the first two, a
+ * function reached by a tail jump started from FK_NONE, and one whose first
+ * conditional reads flags its predecessor set took an arbitrary branch: the
+ * MSVC CRT's `cos` runs a load helper, then falls into `_CIcos`, a separate
+ * function whose first `je` tests the helper's ZF (Bunghole in One's ball
+ * never moved). */
+
 /* Direct call to a known recompiled function */
 #define RECOMP_CALL(func) do { \
     uint32_t _caller = g_cur_func; \
     PUSH32(esp, RECOMP_RETADDR); /* dummy return address */ \
+    RECOMP_FLAGS_OUT(); \
     RECOMP_REGS_OUT(); \
     func(); \
     RECOMP_REGS_IN(); \
@@ -917,13 +1161,17 @@ recomp_func_t recomp_lookup_import(uint32_t va);    /* import bridges */
     if (_fn) { \
         uint32_t _caller = g_cur_func; \
         PUSH32(esp, RECOMP_RETADDR); \
+        RECOMP_FLAGS_OUT(); \
         RECOMP_REGS_OUT(); \
         _fn(); \
         RECOMP_REGS_IN(); \
         g_cur_func = _caller;  /* the callee RECOMP_ENTER clobbered it */ \
     } else { \
+        /* Nothing was pushed on this path, so there is nothing to pop: an \
+         * `esp += 4` here shifted the caller's stack by one slot per miss. \
+         * (Nocturne's CRT init runner lost its saved registers that way and \
+         * skipped ~90 static constructors after its first unlifted entry.) */ \
         fprintf(stderr, "ICALL: unresolved VA 0x%08X from 0x%08X\n", _va, g_cur_func); \
-        esp += 4; /* pop dummy ret addr */ \
         eax = 0; \
     } \
 } while(0)
@@ -938,11 +1186,15 @@ recomp_func_t recomp_lookup_import(uint32_t va);    /* import bridges */
     recomp_func_t _fn = recomp_lookup_manual(_va); \
     if (!_fn) _fn = recomp_lookup(_va); \
     if (!_fn) _fn = recomp_lookup_import(_va); \
-    if (_fn) { RECOMP_REGS_OUT(); _fn(); RECOMP_REGS_IN(); } \
+    if (_fn) { RECOMP_FLAGS_OUT(); RECOMP_REGS_OUT(); _fn(); RECOMP_REGS_IN(); } \
     else if (_va == RECOMP_RETADDR) { /* setjmp and friends return by jumping \
         to the saved return address; that is a return, not a missing target. */ } \
     else { fprintf(stderr, "ITAIL: unresolved VA 0x%08X from 0x%08X\n", _va, g_cur_func); } \
 } while(0)
+
+/* `push target; ret` (Lifter dos=True): a jump to a computed address. Its own
+ * name, so generate.py does not take it for an intra-function indirect jump. */
+#define RECOMP_RET_JUMP(target_va) RECOMP_ITAIL(target_va)
 
 /* ============================================================
  * Optional function-entry tracer (enable with -DRECOMP_TRACE).
@@ -961,10 +1213,52 @@ extern uint32_t g_cur_func;
 extern uint32_t g_enter_trace[RECOMP_ENTER_SIZE];
 extern uint32_t g_enter_idx;
 void recomp_trace_enter(uint32_t va);
-#define RECOMP_ENTER(va) do { g_cur_func = (va); recomp_trace_enter(va); } while (0)
+#define RECOMP_ENTER(va) do { g_cur_func = (va); RECOMP_FLAGS_IN(); recomp_trace_enter(va); } while (0)
 #else
-#define RECOMP_ENTER(va) (g_cur_func = (va))
+#define RECOMP_ENTER(va) (g_cur_func = (va), RECOMP_FLAGS_IN())
 #endif
+
+/* Guest C++ exceptions (runtime/native32/eh32.c). A lifted function whose
+ * prologue installs an MSVC EH frame gets a host landing pad: on a caught
+ * throw the runtime longjmps here with the guest registers set for the
+ * catch's continuation, and the local dispatch goes to its label.
+ * entry_esp is esp at entry (at the return address): the frame's ebp + 4. */
+#include <setjmp.h>
+typedef struct recomp_ehframe {
+    struct recomp_ehframe* prev;
+    jmp_buf  jb;
+    uint32_t entry_esp;
+    uint32_t resume;
+} recomp_ehframe_t;
+void recomp_eh_push(recomp_ehframe_t* f);
+void recomp_eh_pop(recomp_ehframe_t* f);
+#define RECOMP_EH_ENTER()                                                     \
+    recomp_ehframe_t _ehf;                                                    \
+    _ehf.entry_esp = g_esp;                                                   \
+    recomp_eh_push(&_ehf);                                                    \
+    if (setjmp(_ehf.jb)) { RECOMP_REGS_IN(); _flag_k = FK_NONE;               \
+                           _itail_tgt = _ehf.resume; goto _ljump; }
+#define RECOMP_EH_LEAVE() recomp_eh_pop(&_ehf)
+/* A backward branch in lifted code: a loop. Every RECOMP_YIELD_EVERY of them,
+ * hand the machine to other guest threads if the host has a way to
+ * (native32_yield). A lifted spin-wait makes no native call, and native32
+ * hands its machine lock over only at native calls, so a loop waiting on
+ * another guest thread's flag never let that thread run: Yuri's Revenge's
+ * exit spins until its sound thread acknowledges a stop (0x0040A047) and hung
+ * there. The registers go back to the globals around the hand-over, which is
+ * all a native call does. The counter is global and unsynchronised on purpose:
+ * only the thread holding the machine runs lifted code. */
+RECOMP_WEAK void (*recomp_yield_hook)(void);
+RECOMP_WEAK uint32_t g_backedges;
+#ifndef RECOMP_YIELD_EVERY
+#define RECOMP_YIELD_EVERY 0x10000u
+#endif
+#define RECOMP_BACKEDGE() do { \
+    if (++g_backedges >= RECOMP_YIELD_EVERY && recomp_yield_hook) { \
+        g_backedges = 0; \
+        RECOMP_REGS_OUT(); recomp_yield_hook(); RECOMP_REGS_IN(); \
+    } } while (0)
+
 /* Always-callable trace dump (no-op unless RECOMP_TRACE). */
 void recomp_dump_trace(const char* why);
 

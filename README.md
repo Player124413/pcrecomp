@@ -12,7 +12,7 @@
 
 **The unified toolbox for tearing apart old PC software and putting it back together, better.**
 
-This repo collects every tool, runtime, and hard-won trick from our PC static recompilation projects into one place. Next time we want to crack open a dusty `.exe` from 1995 and make it run on Windows 11, we start here.
+This repo collects every tool, runtime, and hard-won trick from our PC static recompilation projects into one place. Next time we want to crack open a dusty `.exe` from 1995 and make it run again — on Windows 11, or **natively on Linux with no emulator and no Wine** — we start here.
 
 ---
 
@@ -24,13 +24,17 @@ pcrecomp/
     pe/            PE: headers, imports, resources, protection, symbol recovery
     ne/            NE (16-bit Windows / OS-2): parse, disassemble, Win16 imports,
                    and the generators that close lift -> compile -> link
+    le/            LE (32-bit DOS extenders: DOS/4GW, PMODE/W, ...): lay the
+                   objects out with fixups applied, re-wrap as PE for disasm32
+    macho/         Mach-O (NeXTSTEP): UFS disk reader, fat slices, shlib
+                   imports, ObjC survey; feeds disasm32/lift32 the i386 slice
     disasm/        Disassemblers, call graphs, and scoring a catalog
     lift/          Lifters for x86-16, x86-32 and x86-64, whole-image drivers,
                    and a differential tester for each
     cpp/           C++ recovery: RTTI, vtables, name (de)mangling
     classify/      Sorting functions: SDK vs custom, library vs game
     ghidra/ ida/   Headless scripts for both
-    drm/           SafeDisc memory dumping
+    drm/           SafeDisc memory dumping, and unpacking by emulation
     assets/        Installers, archives and disc images
     formats/       Decoders for formats nobody else reads (C)
     audit_repo.py  Is this repo safe to make public?
@@ -39,9 +43,21 @@ pcrecomp/
     win16/         16-bit Windows NE: CPU header + link-on-day-one stubs
     recomp32/      32-bit, global registers: memory, dispatch, loader, crash report
     recomp32_cpu/  32-bit, explicit CPU struct (reentrant)
+    dos32/         a DOS/4GW host for lifted LE programs: DPMI, DOS, BIOS,
+                   VGA/VESA, mouse, timer and keyboard IRQs (docs/DOS32.md)
+    native32/      a 32-bit host for recomp32 code: imports, COM and callbacks
+                   go to real Windows with no shims (MSVC x86)
+    nextstep/      a NeXTSTEP 3.x host for recomp32 code: Mach-O + shlib
+                   loader, name-bound libsys shims, ObjC runtime, AppKit on SDL2
+    win32hle/      an *implemented* Win32 on libc/POSIX/SDL2 (where native32
+                   forwards to real Windows, this answers the imports itself):
+                   a PE loader, window manager, GDI, DirectDraw, DirectSound,
+                   Bink, COM and the registry, so recomp32 code runs on Linux
+                   with no Windows and no Wine (runtime/win32hle/README.md)
     recomp64_cpu/  64-bit, explicit CPU struct, plus guest C++ exception handling
     hybrid/        The lifted <-> real boundary, for keeping MFC or the CRT real
-    compat/        Win32 -> SDL2 mapping
+    compat/        Win32 -> SDL2 mapping (the original annotated import census;
+                   win32hle is the implemented successor)
   templates/       Starter CMakeLists and .gitignore for a new project
   docs/            Pipeline, philosophy, the hybrid boundary, publishing
 ```
@@ -55,10 +71,10 @@ on what the binary is:
 | Stage | 16-bit DOS (MZ) | 16-bit Windows (NE) | 32-bit PE | 64-bit PE |
 |-------|-----------------|---------------------|-----------|-----------|
 | Analyse | `disasm/decode16` | `ne/ne_parse`, `ne/ne_xref` | `pe/pe_analyze`, `pe/catalog`, `pe/extract_imports` | same as 32-bit |
-| Find functions | `disasm/analyze`, `disasm/largemodel16` | `ne/ne_decode` (or IDA via `ida/ida_export`) | `disasm/disasm32`, `cpp/rtti`, `cpp/vtable_scan`, `lift/recover`, `disasm/seed_from_log` | an IDA catalog, closed by `lift/generate64` |
+| Find functions | `disasm/analyze`, `disasm/largemodel16` | `ne/ne_decode` (or IDA via `ida/ida_export`) | `disasm/disasm32`, `cpp/rtti`, `cpp/vtable_scan`, `lift/recover`, `disasm/seed_from_log` | `disasm/disasm64` (no IDA), closed by `lift/generate64` |
 | Lift | `lift/lift16` | `lift/ne_lift` | `lift/lift32` (global registers) or `lift/lift32_cpu` (CPU struct) | `lift/lift64_cpu` |
 | Generate the build tree | the project's own driver | `ne/gen_segments_h`, `ne/gen_unresolved_stubs`, `ne/gen_win16_stubs`, `ne/gen_image` | `python -m tools` (`lift/translator`), `lift/generate` | `lift/generate64` |
-| Runtime | `runtime/recomp16` | `runtime/win16` | `runtime/recomp32` or `recomp32_cpu`, plus `hybrid` | `runtime/recomp64_cpu` |
+| Runtime | `runtime/recomp16` | `runtime/win16` | `runtime/recomp32` or `recomp32_cpu`, plus `hybrid`; host it with `native32` (on Windows) or `win32hle` (off Windows, e.g. Linux) | `runtime/recomp64_cpu` |
 | Test the lift | `lift/difftest16`, `recomp16/cpu_selftest.c` | `lift/difftest16 --ne` | `lift/difftest` (Unicorn), `recomp32_cpu/cpu_selftest.c` | `lift/difftest64` (the host CPU) |
 
 `disasm/score_recovery` scores any of the catalogs against a linker map, a PDB
@@ -78,6 +94,7 @@ or IDA, whatever the architecture.
 | `stdcall_argc.py` | Each import's stdcall stack purge, from the SDK's `_Name@N` decorations instead of a hand-typed table |
 | `rsrc.py` | List and extract `.rsrc` (bitmaps get their file header back, so they open) |
 | `map_names.py` | Names from an MSVC linker MAP; `port` carries library names onto a binary that shipped without one |
+| `pdb_ref.py` | A scoring reference from the vendor's PDB, fetched from the symbol server; handles stripped public PDBs (publics + `/Gy` COMDAT ranges) |
 | `debug_symbols.py` | Which source file each function came from, from surviving `__FILE__` strings |
 | `merge_names.py` | Every name source (MAP > RTTI > `__FILE__` > anything else) merged into one C-safe name per address |
 
@@ -86,6 +103,7 @@ or IDA, whatever the architecture.
 | Tool | What it does |
 |------|--------------|
 | `disasm/disasm32.py` | 32-bit recursive descent from the entry point, exports and `--seed-functions` |
+| `disasm/disasm64.py` | 64-bit PE recovery: `.pdata` (chunks set apart), Guard CF, exports, relocations, SEH/C++ funclets, then recursive descent with MSVC x64 switch tables. Writes generate64's catalog; [docs/DISASM64.md](docs/DISASM64.md) |
 | `disasm/decode16.py` | Table-driven 16-bit decoder: resident image, one overlay, or a byte range |
 | `disasm/analyze.py` | 16-bit function boundaries (MSC 5.x patterns) and a symbol table |
 | `disasm/largemodel16.py` | Library: clips DGROUP off the code and resolves large-model far calls |
@@ -103,7 +121,7 @@ or IDA, whatever the architecture.
 |------|--------------|
 | `lift16.py` | x86-16 -> C for DOS MZ; a library (`from lift16 import Lifter`) |
 | `ne_lift.py` | NE-aware x86-16 -> C: far calls through relocations, Win16 imports as `MODULE_API(cpu)`, x87, segment-aware memory |
-| `lift32.py` | x86-32 -> C against global registers (`recomp32`); a library |
+| `lift32.py` | x86-32 -> C against global registers (`recomp32`); a library. `dos=True` turns `int`, port I/O, cli/sti and segment loads into calls to a DOS host (`runtime/dos32`, [docs/DOS32.md](docs/DOS32.md)) |
 | `lift32_cpu.py` | x86-32 -> C against an explicit CPU struct, reentrant, needed for hybrid builds. x87 (80-bit operands, `fprem`, `fcmov`), MMX, packed SSE/SSE2, `lock`, bit-string ops, `bswap` |
 | `lift64_cpu.py` | x86-64 -> C: 32-bit writes zero-extend, RIP-relative operands rebuilt, 16 GPRs + 16 XMM, SSE2 packed integer, quadword string ops, `cpuid` forwarded. x87 and MMX deliberately emit `RECOMP_TODO` |
 | `translator.py` | `python -m tools`: the default 32-bit pipeline, analyse -> disassemble -> lift -> split into files |
@@ -112,6 +130,12 @@ or IDA, whatever the architecture.
 | `difftest.py` | Lifted C vs Unicorn for x86-32, every register, flag and byte compared |
 | `difftest16.py` | The same for x86-16, on raw bytes or a real NE segment (`--ne`) |
 | `difftest64.py` | Lifted C vs the **host CPU** running the original bytes (`difftest64.asm`): registers, memory operands, `lock` atomics |
+
+**DOS extenders: LE** (`tools/le/`)
+
+| Tool | What it does |
+|------|--------------|
+| `le_parse.py` | An LE image (the MZ stub + LE that DOS/4GW, PMODE/W and DOS/32A load) laid out at a chosen base with every fixup applied. `--pe` re-wraps it as a PE32 so disasm32 and lift32 run unchanged; `--seeds` lists the code addresses its fixup tables name, for `disasm32 --seed-functions`. `test_le_parse.py` checks it on a hand-built image |
 
 **Win16 NE** (`tools/ne/`, see [tools/ne/README.md](tools/ne/README.md))
 
@@ -137,7 +161,10 @@ or IDA, whatever the architecture.
 | `ghidra/*.java` | Headless: decompile everything or by address, export functions, stats, xrefs, range disassembly, function bounds |
 | `ida/ida_funcs.py`, `ida_export.py`, `ida_xrefs.py`, `ida_probe_segs.py` | Headless: function catalog with FLIRT flags, instruction-head code map, call graph + import use + FPU density, segment probe |
 | `drm/safedisc_dump.py`, `inject_and_run.c` | Dump SafeDisc-decrypted `.text` from a running process; a version.dll injector for SafeDiscLoader2 |
-| `assets/extract_wise.py`, `isextract.py`, `extract_cab.sh`, `pk3_inspect.py`, `bin2iso.js` | Wise and InstallShield installers, CABs, PK3/ZIP, BIN/CUE -> ISO |
+| `drm/steamstub.py` | Remove SteamStub 2.0 and 2.x (x86) statically: header, payload and the embedded `steamdrm.dll` are decoded in Python, then `.text` is decrypted (AES, or 2.0's running XOR) and the OEP restored. No Steam, nothing run |
+| `drm/unlzexe.py` | Undo LZEXE 0.90/0.91 on a DOS MZ executable -- decoded directly, nothing is run; `test_unlzexe.py` packs a file to check it |
+| `drm/emu_unpack.py` | Unpack a compressed PE32 (PECompact 2.x, and Valve's Steam2 wrapper built on it) by running its stub under Unicorn to the OEP, then rebuild the import table. Headless: nothing is launched |
+| `assets/extract_wise.py`, `isextract.py`, `is3extract.py`, `extract_cab.sh`, `pk3_inspect.py`, `bin2iso.js` | Wise and InstallShield (3, 5, 6+) installers, CABs, PK3/ZIP, BIN/CUE -> ISO |
 | `assets/iso_peek.py` | Read an ISO's directory, locally or **over HTTP range requests**, and pull one file out without downloading the image |
 | `formats/` | FIF/FTC fractal image, M20/MVB, SPAM, DAT and string-table decoders (C) |
 | `audit_repo.py` | Game material or lifted output tracked in a repo, in HEAD or in history; see [docs/PUBLISHING.md](docs/PUBLISHING.md) |
@@ -172,6 +199,28 @@ live in `generate64.py` and `runtime/recomp64_cpu/`:
   shares the calling convention, so the loader puts the real function address
   in the IAT slot. The import map generate64 emits is for reading crash trails.
 
+### Running off Windows — natively on Linux, no Wine
+
+`native32` hosts a lifted 32-bit program by forwarding its imports to the real
+Win32 API, so it only runs on Windows. `runtime/win32hle/` **answers those
+imports itself** on libc / POSIX / SDL2 — a PE loader, a windowing/dialog/menu
+manager, GDI (with SDL2_ttf text), software DirectDraw and DirectSound, Bink
+(ffmpeg), COM, structured storage, an in-memory registry and Winsock — so the
+same lifted C runs on Linux with no emulator and no Wine. It reuses native32's
+shim ABI, so it needs no inline asm; it is the Win32 counterpart of `nextstep/`.
+
+What runs on it today (see [runtime/win32hle/README.md](runtime/win32hle/README.md)):
+
+- **Tiberian Sun / Firestorm** — boots, plays its movies and music, runs its
+  menus and a skirmish.
+- **Red Alert 2 / Yuri's Revenge** — with its Bink movies.
+- **Fury³** — its CRT and `WinMain` (the first census).
+- **SimCity 2000** — its whole MFC MDI startup, into the main window and toolbar.
+
+Build it with gcc `-m32` + 32-bit SDL2/SDL2_ttf; `runtime/win32hle/build_selftests.sh`
+builds and runs the headless selftests. Still out of scope: guest SEH / C++
+exceptions, and DirectX past DirectDraw 2 / DirectSound 1.
+
 ## The Projects That Built This
 
 Every tool here was forged in the fires of an actual recompilation project.
@@ -200,6 +249,7 @@ pipeline run.
 | **[mtm](https://github.com/sp00nznet/mtm)** | Monster Truck Madness 1 + 2 | 1996 / 1998 | Terminal Reality, voxel runtime as a standalone DLL | P0 - the Fury³ engine a third time, renderer split into named DLLs |
 | **[catz](https://github.com/sp00nznet/catz-recomp)** | Catz | 1996 | 16-bit NE engine DLL (PF Magic) | Runs! Win32 window, original frame loop, toys and saving work |
 | **[encarta](https://github.com/sp00nznet/encarta)** | Encarta 97 Encyclopedia | 1996 | MFC 4.0 + proprietary | **Runs!** Whole app lifted (7,326 fns); hybrid boundary puts the app body in recompiled code - 10,242 real MFC virtual dispatches land lifted per session |
+| **[simcity2000](https://github.com/sp00nznet/simcity2000)** | SimCity 2000 (CD / Win95 edition) | 1996 | Maxis, MFC 4.0 + static CRT (Win32) | Plays (Windows); the **win32hle Linux bring-up** runs its whole MFC startup into the main window + toolbar |
 | **[gta](https://github.com/sp00nznet/gta)** | Grand Theft Auto | 1997 | DMA "Race'n'Chase" | Builds & runs - 4,094 functions, 444K lines, runtime bringup |
 | **[pod](https://github.com/sp00nznet/pod-recomp)** | POD Gold | 1997 | Ubi Soft MMX software rasteriser | Compiles & links - 3,405 functions, 0 lift errors, 422K lines |
 | **[ejay](https://github.com/sp00nznet/ejay)** | Dance eJay 1 + 2 | 1997 | PXD Musicsoft audio engine behind a VB front end | **Plays and draws!** Decodes its intro, streams to a real sound card at 22,050 Hz and animates its cursor - out of recompiled 16-bit code |
@@ -208,11 +258,13 @@ pipeline run.
 | **[fallout2-re](https://github.com/sp00nznet/fallout2-re)** | Fallout 2 | 1998 | Custom (Interplay) | Fork - decompilation ~complete (alexbatalov upstream) |
 | **[trespasser](https://github.com/sp00nznet/trespasser)** | Jurassic Park: Trespasser | 1998 | DreamWorks Interactive rigid-body engine (MSVC 6.0) | P0 - reconnaissance. Ships a linker map, which makes it the calibration target for function recovery |
 | **[nocturne](https://github.com/sp00nznet/nocturne)** | Nocturne | 1999 | Terminal Reality, Watcom C/C++32 | Phase 7 - 6,027 functions lift with 0 errors; real window, 42 MB image mapped, IAT dispatch, 95 of 171 imports live |
+| **[tiberiansun-recomp](https://github.com/sp00nznet/tiberiansun-recomp)** | C&C: Tiberian Sun + Firestorm | 1999 | Westwood TS engine (Win32) | **Runs natively on Linux** (win32hle): boots, plays its movies and music, runs its menus, and plays a skirmish - no Wine |
 | **[mechwarrior3-recomp](https://github.com/sp00nznet/mechwarrior3-recomp)** | MechWarrior 3 | 1999 | Zipper GOS engine (VC6 + MFC42, DirectX 6) | Compiles - 2,805 functions, 0 lift errors, 158K lines, all 7 TUs build as a static lib |
 | **[recoil-recomp](https://github.com/sp00nznet/recoil-recomp)** | Recoil | 1999 | Zipper GOS engine (VC6 + MFC42) | Compiles - 3,490 functions, 0 lift errors, 321K lines, 8/8 TUs build |
 | **[xwa](https://github.com/sp00nznet/xwa)** | X-Wing Alliance | 1999 | Custom (LucasArts) | Active - D3D11 port, concourse UI runs, 2,702 functions |
 | **[sof](https://github.com/sp00nznet/sof)** | Soldier of Fortune | 2000 | Quake II + GHOUL | Active - SDL2 port, 8 subsystems, full maps render |
 | **[gunman](https://github.com/sp00nznet/gunman)** | Gunman Chronicles | 2000 | GoldSrc (Half-Life) | Phase 2 - 3,990 functions, weapons/entities rebuilt |
+| **[redalert2-recomp](https://github.com/sp00nznet/redalert2-recomp)** | C&C: Red Alert 2 + Yuri's Revenge | 2000 | Westwood (Win32) | **Runs natively on Linux** (win32hle) with its Bink movies; a D3D11 presenter (720p-4K, HD voxel units) |
 | **[heavymetal](https://github.com/sp00nznet/heavymetal)** | Heavy Metal: FAKK2 | 2000 | id Tech 3 + UberTools | Foundation - 57 source files, core systems scaffolded |
 | **[crimsonskies](https://github.com/sp00nznet/crimsonskies)** | Crimson Skies | 2000 | Zipper GOS engine | Compiles & links - 6,232 functions, 826K lines, runtime bringup |
 | **[forcecommander](https://github.com/sp00nznet/forcecommander)** | Star Wars: Force Commander | 2000 | LucasArts Ronin engine (MSVC 6) | **In game!** The campaign's briefing room renders in 3D - 39,038 functions, 10.7M lines, 0 lift errors |
@@ -450,6 +502,41 @@ python tools/drm/safedisc_dump.py game.exe decrypted.exe
 python tools/drm/safedisc_dump.py --pid 1234 game.exe decrypted.exe
 ```
 
+### "The exe is packed" (one high-entropy section, a handful of imports)
+
+```bash
+# Run the unpacker stub under Unicorn to the original entry point, dump, and
+# rebuild the imports. No process is started, so it works over RDP and in CI.
+python tools/drm/emu_unpack.py packed.exe unpacked.exe
+python tools/drm/emu_unpack.py --selftest
+```
+
+An unknown call from the stub stops the run and names the import; add it to
+`APIS` in the script. Steam2-era titles (2004-2008) call `steam.dll`'s
+`SteamStartup` / `SteamIsAppSubscribed` from the stub, and those are answered.
+
+### "The Steam exe has a `.bind` section"
+
+```bash
+# SteamStub: Steam's DRM wrapper. Version 2.x (around 2004-2010) comes off
+# statically, in under a second, with no Steam running and no process started.
+python tools/drm/steamstub.py game.exe unwrapped.exe
+python tools/drm/steamstub.py --selftest
+```
+
+Each layer is checked: the stub's prologue, the payload checksum, `steamdrm.dll`'s
+MZ, the app id, the OEP's section, and the AES padding. A layout it doesn't know
+stops with the failed check instead of writing a broken file.
+
+### "The DOS exe says LZ91 at offset 1Ch"
+
+```bash
+# LZEXE-packed (id, Apogee and JAM shipped through it). Writes a plain MZ
+# with the original relocation table, ready for decode16/analyze.
+python tools/drm/unlzexe.py PACKED.EXE unpacked.exe
+python tools/drm/test_unlzexe.py
+```
+
 ### "It's a Wise installer and I want the files out"
 
 ```bash
@@ -495,10 +582,15 @@ python tools/ne/ne_decode.py GAME.EXE --ida-json code_map.json
 
 **For format tools:** C compiler (MSVC or GCC)
 
-**For runtime:** CMake 3.20+, Visual Studio 2022 or compatible
+**For the runtime on Windows:** CMake 3.20+, Visual Studio 2022 or compatible
+
+**For the runtime off Windows (`win32hle`, Linux):** a 32-bit toolchain and SDL2,
+built `-m32`. On Debian/Ubuntu: `dpkg --add-architecture i386; apt install
+gcc-multilib libsdl2-dev:i386 libsdl2-ttf-dev:i386` (ffmpeg dev too for Bink).
+`runtime/win32hle/build_selftests.sh` builds and runs the suite headless.
 
 ```bash
-pip install capstone pefile lief unicorn
+pip install capstone pefile lief unicorn cryptography
 ```
 
 ## Starting a New Project
@@ -541,9 +633,14 @@ pip install capstone pefile lief unicorn
 
 > Any PC application ever compiled can be systematically deconstructed and rebuilt for modern hardware. It's not magic, it's just work -- and with the right tools, it's *less* work every time.
 
-We've proven this across DOS, Win16, Win32, Win64, MFC, Quake-family engines, GoldSrc, id Tech 3, and completely custom engines. The pattern is always the same: **Analyze -> Disassemble -> Classify -> Lift -> Shim -> Build -> Debug -> Ship.**
+We've proven this across DOS, Win16, Win32, Win64, MFC, Quake-family engines, GoldSrc, id Tech 3, and completely custom engines — and we now run the results not just on Windows 11 but **natively on Linux, with no emulator and no Wine** (`runtime/win32hle/`). The pattern is always the same: **Analyze -> Disassemble -> Classify -> Lift -> Shim -> Build -> Debug -> Ship.**
 
 Read the full philosophy in [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md).
+
+## Contributors
+
+pcrecomp is built by more than one person. See
+**[CONTRIBUTORS.md](CONTRIBUTORS.md)** for who did what. Thank you, all of you.
 
 ## Credits
 

@@ -16,7 +16,7 @@ import json
 # never been the paths -- so it did not import at all, and every project forked
 # it instead of using it.
 _TOOLS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _d in ('pe', 'lift'):
+for _d in ('pe', 'lift', 'disasm'):
     _p = os.path.join(_TOOLS, _d)
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -25,13 +25,19 @@ import lift32
 from pe_analyze import analyze_pe, build_iat_map
 from lift32 import Lifter
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32
-from capstone.x86 import X86_OP_IMM
+from capstone.x86 import X86_OP_IMM, X86_OP_MEM
+from disasm32 import decode
 
 
 COND_JUMPS = {
     'je', 'jne', 'jz', 'jnz', 'ja', 'jae', 'jb', 'jbe',
     'jg', 'jge', 'jl', 'jle', 'js', 'jns', 'jo', 'jno',
     'jp', 'jnp', 'jcxz', 'jecxz',
+    # loop branches too. Without these its target was no block leader, the
+    # lifted `goto` found no label, and the fallback tail-jumped to an address
+    # nothing lifted: Theme Park's sprite blitter (hand-written, a `loop` per
+    # run) skipped its inner loops and drew off the end of the screen.
+    'loop', 'loope', 'loopne',
 }
 
 
@@ -48,7 +54,7 @@ class LinearInstruction:
         self.bytes = bytes(insn.bytes)
         self.operands = list(insn.operands) if insn.operands else []
         self.is_call = insn.mnemonic == 'call'
-        self.is_ret = insn.mnemonic in ('ret', 'retn', 'retf')
+        self.is_ret = insn.mnemonic.split()[-1] in ('ret', 'retn', 'retf')   # and `repz ret`
         self.is_cond_jump = insn.mnemonic in COND_JUMPS
         self.is_uncond_jump = insn.mnemonic == 'jmp'
         self.is_jump = self.is_cond_jump or self.is_uncond_jump
@@ -94,10 +100,17 @@ def find_entries(code_data, code_start, code_end):
 MAX_RESUMES = 64        # see the resume note in linear_disassemble_function
 
 
-def linear_disassemble_function(md, code_data, code_start, func_start, func_end):
+def linear_disassemble_function(md, code_data, code_start, func_start, func_end,
+                                reached=None):
     """
     Disassemble a function using linear sweep between known boundaries.
     Returns list of LinearInstruction and set of basic block leaders.
+
+    With `reached` (the instruction set true_extent walked), decode exactly
+    those instructions: a pass stops at the first address outside the set and
+    the next resumes at the lowest reached address not yet decoded. A jump
+    table sitting between a switch and its arms is then never decoded as
+    code, where a plain sweep turns its bytes into `pushal` and loses the arms.
     """
     offset = func_start - code_start
     size = func_end - func_start
@@ -114,10 +127,12 @@ def linear_disassemble_function(md, code_data, code_start, func_start, func_end)
     while pc is not None:
         over = None        # target of the last uncond jmp decoded in this pass
         hit_pad = False
-        for insn in md.disasm(raw[pc - func_start:], pc):
+        for insn in decode(md, raw[pc - func_start:], pc):
             li = LinearInstruction(insn)
             if li.address in seen:
                 break           # walked into a block already decoded
+            if reached is not None and li.address not in reached:
+                break           # past what the walk reached: data, or another body
             seen.add(li.address)
             instructions.append(li)
 
@@ -190,7 +205,10 @@ def linear_disassemble_function(md, code_data, code_start, func_start, func_end)
         # body has shown; the symptom of needing more is a returning
         # "ITAIL: unresolved VA".
         pc = None
-        if hit_pad and over is not None and over not in seen                 and resumes < MAX_RESUMES:
+        if reached is not None:
+            rest = [a for a in reached if a not in seen and func_start <= a < func_end]
+            pc = min(rest) if rest else None
+        elif hit_pad and over is not None and over not in seen                 and resumes < MAX_RESUMES:
             pc = over
             resumes += 1
 
@@ -207,10 +225,18 @@ FPU_CMP = {'EQ': '==', 'NE': '!=', 'B': '<', 'BE': '<=', 'A': '>', 'AE': '>=',
            'L': '<', 'LE': '<=', 'G': '>', 'GE': '>='}
 
 
-def push_return_label(insn, nxt, leaders):
-    """The label of a `push label; jmp func` pair, or None."""
+def push_return_label(insn, nxt, leaders, body=()):
+    """The label of a `push label; jmp func` pair, or None.
+
+    Only when `func` is outside this body. A jump to the body's own code is a
+    jump, and the push is an argument: Yuri's Revenge's control subclass
+    procedure (0x00617250) pushes its own address and jumps to its shared
+    epilogue, which calls CallWindowProcA with it. Read as a call, the
+    epilogue ran as a separate function, came back, and the C restarted the
+    procedure from its entry with the stack scrambled.
+    """
     if (nxt is not None and insn.mnemonic == 'push' and nxt.mnemonic == 'jmp'
-            and nxt.get_branch_target() is not None):
+            and nxt.get_branch_target() is not None and nxt.get_branch_target() not in body):
         t = insn.get_branch_target()      # the push's immediate
         if t is not None and t in leaders:
             return t
@@ -218,7 +244,7 @@ def push_return_label(insn, nxt, leaders):
 
 
 def lift_function_linear(lifter, name, instructions, leaders, func_start,
-                         indirect_targets=None):
+                         indirect_targets=None, eh_resume=None):
     """Lift a linearly-disassembled function to C code.
 
     The preamble comes from `lift32.FUNCTION_LOCALS`, not from a list written
@@ -238,6 +264,11 @@ def lift_function_linear(lifter, name, instructions, leaders, func_start,
         across the image and jumps between them, and each block addresses the
         same frame through ebp. Lifted as separate bodies, a private ebp starts
         each at 0 and the first `[ebp-0x20]` reads 0xFFFFFFE0.
+
+    `eh_resume`: where this function continues after one of its own catch
+    blocks (eh32.resume_points). Those become labels in the local dispatch and
+    the body gets a landing pad (RECOMP_EH_ENTER) that the runtime longjmps to
+    on a caught guest throw (runtime/native32/eh32.c).
     """
     va = func_start & 0xFFFFFFFF
     lines = [f'void {name}(void) {{']
@@ -245,6 +276,10 @@ def lift_function_linear(lifter, name, instructions, leaders, func_start,
         lines.append(f'    {decl}')
     lines.append('    RECOMP_REGS_LOCALS')   # empty unless RECOMP_LOCAL_REGS
     lines.append(f'    RECOMP_ENTER(0x{va:08X}u);')
+    eh = sorted(a for a in (eh_resume or ()) if a in {i.address for i in instructions})
+    if eh:
+        lines.append('    RECOMP_EH_ENTER();')
+        leaders = set(leaders) | set(eh)
     lines.append('')
 
     lifter._flag_state = None
@@ -271,10 +306,39 @@ def lift_function_linear(lifter, name, instructions, leaders, func_start,
         lines.append(f'    goto L_{va:08X};')
         leaders = set(leaders) | {va}
 
+    # A branch target is a join point: the lifter's static flag state describes
+    # the textually preceding instruction, not the flags a jump arrives with.
+    # Carried across the label, `cmp ebx,0x102; jae L` reached L's `jbe` as the
+    # TEST_Z of an unrelated `and` just above it (Nocturne's window procedure
+    # never saw a WM_CHAR). Forget it there; the jcc reads _flag_k at runtime.
+    targets = {t for i in instructions if i.is_jump
+               for t in [i.get_branch_target()] if t is not None} | set(eh)
+
+    # A gap inside the body: instruction k can fall through, but the next one
+    # emitted is not at its end, because the extent walk stopped there (a
+    # catalog entry right after a `call` reads as a noreturn call) or a later
+    # pass resumed below it. The C would run straight on into the next emitted
+    # block. Yuri's Revenge's init lost an inline strcat and the rest of a loop
+    # that way: `call sprintf` at 0x0052C438, a false entry at 0x0052C43D, and
+    # the C went on at 0x0052C4C0 with an empty CD search path. So fall
+    # through the way the CPU does: to a label if the address is in this body,
+    # else as a tail call to it.
+    addrs = {i.address for i in instructions}
+    gaps = {}
+    for k in range(len(instructions) - 1):
+        cur, nxt_i = instructions[k], instructions[k + 1]
+        if (nxt_i.address != cur.end_address and not cur.is_ret and not cur.is_uncond_jump
+                and cur.mnemonic not in ('int3', 'hlt')):
+            gaps[k] = cur.end_address
+    leaders = set(leaders) | {a for a in gaps.values() if a in addrs}
+    body_addrs = addrs
+
     skip = False
     for k, insn in enumerate(instructions):
         if label_all or insn.address in leaders:
             lines.append(f'L_{insn.address:08X}:')
+            if label_all or insn.address in targets:
+                lifter._flag_state = None
         if skip:
             skip = False
             continue
@@ -283,7 +347,7 @@ def lift_function_linear(lifter, name, instructions, leaders, func_start,
         # returns to its C caller whatever address was pushed, so lifting the
         # jmp as a tail call ended the span loop at the first trailing edge.
         nxt = instructions[k + 1] if k + 1 < len(instructions) else None
-        ret = push_return_label(insn, nxt, leaders)
+        ret = push_return_label(insn, nxt, leaders, body_addrs)
         if ret is not None:
             tgt = nxt.get_branch_target()
             call = (f'RECOMP_CALL(sub_{tgt:08X});' if lifter.lifted is None or tgt in lifter.lifted
@@ -291,8 +355,17 @@ def lift_function_linear(lifter, name, instructions, leaders, func_start,
             lines.append(f"    {call} RECOMP_FLAGS_IN(); goto L_{ret:08X}; /* 0x{insn.address:08X}: push 0x{ret:08X}; jmp 0x{tgt:08X} */")
             skip = True
             continue
+        # A branch back to an earlier instruction of this body is a loop:
+        # give other guest threads a turn now and then (RECOMP_BACKEDGE).
+        tgt = insn.get_branch_target() if insn.is_jump else None
+        if tgt is not None and tgt <= insn.address and tgt in addrs:
+            lines.append('    RECOMP_BACKEDGE();')
         for line in lifter.lift_instruction(insn):
             lines.append(f'    {line}')
+        if k in gaps:
+            t = gaps[k]
+            lines.append(f'    goto L_{t:08X}; /* falls through past a gap */' if t in addrs else
+                         f'    RECOMP_ITAIL(0x{t:08X}u); return; /* falls through past a gap */')
 
     # A body that runs off its end falls through into whatever the catalog
     # starts there -- typically an epilogue MSVC shares between two paths and
@@ -317,7 +390,7 @@ def lift_function_linear(lifter, name, instructions, leaders, func_start,
     defined = sorted(set(re.findall(r'(?m)^\s*(L_[0-9A-Fa-f]{8})\s*:', body)))
     indirect = [i for i, l in enumerate(lines)
                 if 'RECOMP_ITAIL(' in l and 'RECOMP_ITAIL(0x' not in l]
-    if indirect and defined:
+    if (indirect or eh) and defined:
         for i in indirect:
             m = re.search(r'RECOMP_ITAIL\((.+?)\);\s*return;', lines[i])
             if m:
@@ -325,8 +398,9 @@ def lift_function_linear(lifter, name, instructions, leaders, func_start,
                             % m.group(1))
         lines.append('  _ljump:')
         lines.append('    switch (_itail_tgt) {')
-        cases = (defined if indirect_targets is None else
+        cases = ([] if not indirect else defined if indirect_targets is None else
                  [lbl for lbl in defined if int(lbl[2:], 16) in indirect_targets])
+        cases = sorted(set(cases) | {f'L_{a:08X}' for a in eh})
         for lbl in cases:
             lines.append(f'      case 0x{int(lbl[2:], 16):08X}u: goto {lbl};')
         lines.append('      default: RECOMP_ITAIL(_itail_tgt); return;')
@@ -340,9 +414,10 @@ def lift_function_linear(lifter, name, instructions, leaders, func_start,
 
     # With RECOMP_LOCAL_REGS every exit writes the registers back (the macro
     # is empty otherwise), including a body that runs off its closing brace.
-    lines.append('    RECOMP_REGS_OUT();')
+    leave = 'RECOMP_EH_LEAVE(); ' if eh else ''
+    lines.append(f'    {leave}RECOMP_REGS_OUT();')
     lines.append('}')
-    out = re.sub(r'\breturn;', '{ RECOMP_REGS_OUT(); return; }', '\n'.join(lines))
+    out = re.sub(r'\breturn;', '{ %sRECOMP_REGS_OUT(); return; }' % leave, '\n'.join(lines))
     return re.sub(r'CMP_(\w+)\(_fpu_cmp\)',
                   lambda m: f'((_fpu_cmp) {FPU_CMP.get(m.group(1), "==")} 0)', out)
 
@@ -364,6 +439,216 @@ def write_chunk(output_dir, file_idx, funcs):
             f.write('\n\n')
 
 
+EXTENT_REACH = 0x40000      # cap on how far one function's body may reach
+BACK_REACH = 0x100          # ...and how far below its entry a chunk may sit
+
+
+def _jump_table(ins, code, code_start, lo, hi, limit=1024):
+    """Arms of `jmp dword ptr [reg*4 + table]`, read while they land in [lo, hi)."""
+    if not ins.operands or ins.operands[0].type != X86_OP_MEM:
+        return []
+    mem = ins.operands[0].mem
+    if mem.base or not mem.index or mem.scale != 4:
+        return []
+    # A table's first entries can be unused: CRT memmove indexes one with
+    # `edi & 3` on a path where that is never 0, and its slot 0 overlaps the
+    # bytes of the jmp before it. Stopping at the first bad entry lost every
+    # arm. So skip up to three leading bad entries; after the first good one,
+    # a bad entry ends the table.
+    base = (mem.disp & 0xFFFFFFFF) - code_start
+    arms, at, k = [], base, 0
+    while 0 <= at <= len(code) - 4 and len(arms) < limit:
+        t = int.from_bytes(code[at:at + 4], 'little')
+        if lo <= t < hi:
+            arms.append(t)
+        elif arms or k >= 3:
+            break
+        at += 4
+        k += 1
+    # ...and the index can be negative. CRT memcpy's backward copy does
+    # `jmp [ecx*4 + 0xacdf88]` with ecx from -3 to 0, so its arms sit below the
+    # displacement; reading only upward lost them (ITAIL 0x00ACDFAC). Take the
+    # contiguous run of valid entries below it too.
+    #
+    # An entry never points into its own table, which is data. MSVC 2 puts
+    # the table straight after `jmp [reg*4 + table]`, so the dword below the
+    # table is that jmp's displacement: the table's own address, always in
+    # range. Taken as an arm, the table's bytes were walked as code, their
+    # garbage decode ran into the first real instruction after the table from
+    # the middle, and the body lifted both streams interleaved: a call
+    # returned into the middle of its own bytes (Hover!, 0x004164A0). A second
+    # jmp through the same table reads the same dword (CRT memcpy's backward
+    # copy: Hover! 0x00440489, SimCity 2000 0x0048ECB1), so the test is where
+    # the entry points, not which jmp is reading.
+    table_end = at + code_start          # where the upward scan stopped
+    at = base - 4
+    while at >= 0 and base - at <= 64:
+        t = int.from_bytes(code[at:at + 4], 'little')
+        if not lo <= t < hi or at + code_start <= t < table_end:
+            break
+        arms.append(t)
+        at -= 4
+    return arms
+
+
+def true_extent(md, code, code_start, start, hard_end, entries, reached=None, behind=None,
+                called=None):
+    """Exact end of the body at `start`: the highest address reached by
+    fallthrough and direct branches. Returns (end, clean).
+
+    A catalog gives an entry and a reachability bound, and neither is an
+    extent. Clamping to the next entry cuts functions in half at false starts;
+    trusting a reachability `end` decodes unrelated code as one body. Walking
+    the branches settles it (forcecommander, where both were tried and broke).
+
+    * A `jmp` to another entry in `entries` is a tail call and ends the path.
+      `entries` must hold only real starts, not alias entries: an ordinary
+      jump to an alias would stop the walk early (forcecommander 0x00554A00).
+    * Fallthrough into another entry ends the path only after a `call`: that
+      is the one way real code falls into the next function (a call to a
+      noreturn function with nothing after it). After any other instruction
+      the "entry" is a false start inside this body, and stopping there cut
+      CRT parse_cmdline at 0x00AE7147 into an infinite `dec eax; jmp` loop
+      (The Movies).
+    * `hard_end` is a reach cap (EXTENT_REACH), never the catalog's clamped
+      end. MSVC calls a function's own __finally block with a `call` into the
+      middle of its body; the block is then an entry, and the parent's exit
+      path jumps past it. Bounded by the clamp, CRT calloc lost its epilogue
+      to an unresolved ITAIL (The Movies, 0x00AD578C).
+
+    * `jmp [reg*4 + table]` (an MSVC switch) is followed through the table:
+      each dword is an arm while it lands inside [start, hard_end). Without
+      this every arm past the table was outside the body and CRT memcpy's
+      tail copies became unresolved ITAILs (The Movies, 0x00ACDE33).
+
+    `clean` is False when no path reached ret, int3, a tail call or another
+    entry: a health metric for the catalog, not an error.
+
+    Pass a set as `reached` to get every instruction address the walk
+    decoded; linear_disassemble_function takes it to lift exactly those, so a
+    jump table's bytes are never decoded as instructions.
+
+    Pass a set as `behind` to collect direct branch targets below `start` that
+    are not entries: the evidence find_splits() uses.
+
+    Pass a set as `called` to collect the targets of direct calls in the body:
+    a lift driver needs every one of them dispatchable, catalogued or not.
+    """
+    view = memoryview(code)
+    seen = reached if reached is not None else set()
+    work, top, clean = [start], start, False
+    low = max(code_start, start - BACK_REACH)
+    deferred = set()        # branches to entries: tail calls, unless inside our span
+    while True:
+        while work:
+            va = work.pop()
+            if va in seen or not (low <= va < hard_end):
+                continue
+            after_call = False
+            for ins in decode(md, view[va - code_start:hard_end - code_start], va):
+                if ins.address in seen:
+                    break
+                if after_call and ins.address in entries:
+                    clean = True        # a noreturn call fell into the next function
+                    break
+                after_call = ins.mnemonic == 'call'
+                seen.add(ins.address)
+                top = max(top, ins.address + ins.size)
+                m = ins.mnemonic
+                if m.split()[-1] in ('ret', 'retn'):   # `repz ret` ends a body too
+                    m = m.split()[-1]
+                t = None
+                if ins.operands and ins.operands[0].type == X86_OP_IMM:
+                    t = ins.operands[0].imm & 0xFFFFFFFF
+                if m in ('ret', 'retn', 'retf', 'iret', 'int3', 'hlt'):
+                    clean = True
+                    break
+                branch = m == 'jmp' or m in COND_JUMPS or m.startswith('loop')
+                if called is not None and m == 'call' and t is not None:
+                    called.add(t)
+                if (behind is not None and branch and t is not None and t < start
+                        and t not in entries):
+                    behind.add(t)
+                if branch and t is not None and start < t < hard_end:
+                    (deferred.add if t in entries else work.append)(t)
+                # Hand-written CRT routines (strchr, strlen) put a shared exit
+                # just BELOW their entry, after int3 padding, and jump back to
+                # it. Padding before the target says it is not the middle of
+                # the function before this one (that would be a split).
+                elif (branch and t is not None and low <= t < start and t not in entries
+                        and code[t - code_start - 1] == 0xCC):
+                    work.append(t)
+                if m == 'jmp':
+                    if t is None:
+                        arms = _jump_table(ins, code, code_start, start, hard_end)
+                        work.extend(a for a in arms if a not in entries)
+                        deferred.update(a for a in arms if a in entries)
+                        clean = clean or not arms   # an indirect tail call ends the body
+                    elif not (low <= t < hard_end) or t in entries:
+                        clean = True
+                    break
+        # A jump to an "entry" inside the span this body already covers is not
+        # a tail call: the entry is a false start in our own code. CRT _stat
+        # jumps to its own cleanup at a catalogued 0x00AD3D45; treated as a
+        # tail call, the cleanup ran twice and FindClose freed a handle twice.
+        inside = [t for t in deferred if t < top and t not in seen]
+        if not inside:
+            break
+        deferred.difference_update(inside)
+        work.extend(inside)
+    return top, clean
+
+
+def find_splits(md, code, code_start, code_end, entries):
+    """Entries that are really the middle of the entry before them.
+
+    A catalog splits a function when it takes a loop head or a jump target for
+    a start. Two things then break: the parent's walk stops when it falls
+    through into the false entry, and the false entry's own backward jumps
+    land in its parent, where there is no label, so they become unresolved
+    ITAILs (The Movies: 2,080 of them in one region).
+
+    The code says which entries these are. A real function does not branch
+    backward into the body of the function before it; a split does. So an
+    entry E is a split when a walk from E branches to an address that is not
+    an entry, lies below E, and lies at or above the entry before E. Treat the
+    result like alias entries: remove them from the set true_extent's
+    `entries` gets, and keep them dispatchable.
+    """
+    ordered = sorted(e for e in entries if code_start <= e < code_end)
+    splits = set()
+    for i, e in enumerate(ordered):
+        if i == 0:
+            continue
+        back = set()
+        true_extent(md, code, code_start, e, min(e + EXTENT_REACH, code_end), entries,
+                    behind=back)
+        if any(ordered[i - 1] <= t < e and code[t - code_start - 1] != 0xCC for t in back):
+            splits.add(e)
+    return splits
+
+
+def closure(functions, roots, limit):
+    """Breadth-first call-graph closure from `roots`, at most `limit` entries.
+
+    `functions` maps address -> catalog entry with a `calls_to` list (disasm32's
+    output). Breadth-first because the first N functions reached from the
+    entry point are the startup path, which is what a first run needs; lift
+    that, stub the rest to report themselves, and grow by measurement.
+    """
+    from collections import deque
+    seen, order, q = set(), [], deque(r for r in roots if r in functions)
+    seen.update(q)
+    while q and len(order) < limit:
+        a = q.popleft()
+        order.append(a)
+        for t in functions[a].get('calls_to', ()):
+            if t in functions and t not in seen:
+                seen.add(t)
+                q.append(t)
+    return order
+
+
 def _selftest():
     """Lift a hand-assembled function and check the emitted C.
 
@@ -374,6 +659,12 @@ def _selftest():
     """
     md = Cs(CS_ARCH_X86, CS_MODE_32)
     md.detail = True
+
+    # A loop's target is a block leader, so its goto has a label to land on.
+    #   0x1000: inc eax / 0x1001: loop 0x1000 / 0x1003: ret
+    code = bytes([0x40, 0xE2, 0xFD, 0xC3])
+    _, lead = linear_disassemble_function(md, code, 0x1000, 0x1000, 0x1004)
+    assert 0x1000 in lead and 0x1003 in lead, lead
 
     #   push ebp / mov ebp,esp / mov eax,[ebp+8] / jmp eax   (indirect tail)
     code = bytes([0x55, 0x8B, 0xEC, 0x8B, 0x45, 0x08, 0xFF, 0xE0])
@@ -431,6 +722,37 @@ def _selftest():
     out4 = lift_function_linear(Lifter(iat_map={}), 'sub_00401000', i4, l4, base)
     assert 'RECOMP_ITAIL(0x00401003u); { RECOMP_REGS_OUT(); return; } /* falls through */' in out4, out4
 
+    # ...and so must a gap in the MIDDLE of a body. The walk reached the call
+    # and the ret but not the nop between (the shape of a false catalog entry
+    # right after a call); the call must not run on into the ret.
+    #   1000 call 1006 / 1005 nop / 1006 ret
+    mid = bytes([0xE8, 0x01, 0x00, 0x00, 0x00, 0x90, 0xC3])
+    i5, l5 = linear_disassemble_function(md, mid, base, base, base + len(mid),
+                                         reached={base, base + 6})
+    assert [i.address - base for i in i5] == [0, 6], [hex(i.address) for i in i5]
+    out5 = lift_function_linear(Lifter(iat_map={}), 'sub_00401000', i5, l5, base)
+    assert 'RECOMP_ITAIL(0x00401005u); { RECOMP_REGS_OUT(); return; } /* falls through past a gap */' in out5, out5
+
+    # A backward branch is a loop: it gets a RECOMP_BACKEDGE before it, so a
+    # spin-wait cannot keep other guest threads off the machine forever.
+    #   1000 mov eax,[0x2000] / 1005 test eax,eax / 1007 je 1000 / 1009 ret
+    spin = bytes([0xA1, 0x00, 0x20, 0x00, 0x00, 0x85, 0xC0, 0x74, 0xF7, 0xC3])
+    i6, l6 = linear_disassemble_function(md, spin, base, base, base + len(spin))
+    out6 = lift_function_linear(Lifter(iat_map={}), 'sub_00401000', i6, l6, base)
+    assert out6.count('RECOMP_BACKEDGE();') == 1, out6
+    assert out6.index('RECOMP_BACKEDGE();') < out6.index('0x00401007'), out6
+    assert 'RECOMP_BACKEDGE' not in out3, 'a forward branch is not a loop'
+
+    # `push label; jmp X` is a call returning to `label` only when X is not
+    # this body's own code. Here X (0x1009) is the body's epilogue and the
+    # push is an argument for it: a plain push and a goto, no call.
+    #   1000 push 0x1000 / 1005 jmp 1009 / 1007 nop / 1008 nop / 1009 ret 4
+    own = bytes([0x68, 0x00, 0x10, 0x40, 0x00, 0xEB, 0x02, 0x90, 0x90, 0xC2, 0x04, 0x00])
+    i7, l7 = linear_disassemble_function(md, own, base, base, base + len(own),
+                                         reached={base, base + 5, base + 9})
+    out7 = lift_function_linear(Lifter(iat_map={}), 'sub_00401000', i7, l7, base)
+    assert 'RECOMP_CALL' not in out7 and 'goto L_00401009;' in out7, out7
+
     # ...and trailing int3 padding still ends the body: the first one is
     # emitted (it lifts to a trap, which is correct for unreachable filler) and
     # the sweep stops rather than decoding the rest of the padding run.
@@ -478,6 +800,103 @@ def _selftest():
     assert 'fnstsw - FPU status to ax' not in out3, 'fnstsw is still a comment'
     assert '0x4000u' in out3 and '0x0100u' in out3, out3
     assert 'eax = (eax & 0xFFFF0000u)' in out3, out3
+
+    # true_extent: the calloc shape. A calls its own __finally block B, jumps
+    # over it, and its exit path (jne) lands on an epilogue past B. The catalog
+    # has B as an entry; the extent must still reach the epilogue, and stop at
+    # C, which A never reaches. C ends in a (noreturn) call that falls into D,
+    # and must stop there.
+    #   1000 test eax,eax / 1002 jne 100c / 1004 call 100b / 1009 jmp 100c
+    #   100b B: ret / 100c xor eax,eax / 100e ret / 100f C: call 1000 / 1014 D: ret
+    code = bytes([0x85, 0xC0, 0x75, 0x08, 0xE8, 0x02, 0x00, 0x00, 0x00, 0xEB, 0x01,
+                  0xC3, 0x31, 0xC0, 0xC3, 0xE8, 0xEC, 0xFF, 0xFF, 0xFF, 0xC3])
+    ents = {0x1000, 0x100B, 0x100F, 0x1014}
+    assert true_extent(md, code, 0x1000, 0x1000, 0x1015, ents) == (0x100F, True)
+    assert true_extent(md, code, 0x1000, 0x100F, 0x1015, ents) == (0x1014, True)
+    # ...and the old bound (the catalog clamp at B) is exactly what lost it.
+    assert true_extent(md, code, 0x1000, 0x1000, 0x100B, ents)[0] == 0x100B
+    # Falling into an "entry" after anything but a call means the entry is a
+    # false start inside this body (CRT parse_cmdline): keep going.
+    assert true_extent(md, bytes([0x90, 0x90, 0xC3]), 0x1000, 0x1000, 0x1003,
+                       {0x1000, 0x1001}) == (0x1003, True)
+
+    # A switch: jmp [eax*4 + 0x1008], a pad byte, the table (arms 0x1010,
+    # 0x1012), then the arms. The walk must reach both arms, and the sweep
+    # given the walk's set must decode the arms and not the table bytes.
+    #   1000 jmp [eax*4+1008] / 1007 int3 / 1008 dd 1010, 1012 / 1010 xor / 1012 ret
+    code = bytes([0xFF, 0x24, 0x85, 0x08, 0x10, 0x00, 0x00, 0xCC,
+                  0x10, 0x10, 0x00, 0x00, 0x12, 0x10, 0x00, 0x00,
+                  0x31, 0xC0, 0xC3])
+    got = set()
+    assert true_extent(md, code, 0x1000, 0x1000, 0x1013, {0x1000}, reached=got) == (0x1013, True)
+    assert got == {0x1000, 0x1010, 0x1012}, sorted(map(hex, got))
+    insns, _ = linear_disassemble_function(md, code, 0x1000, 0x1000, 0x1013, reached=got)
+    assert [i.address for i in insns] == [0x1000, 0x1010, 0x1012], [hex(i.address) for i in insns]
+
+    # A biased table: slot 0 is never used and holds garbage (memmove).
+    #   1000 jmp [eax*4+1007] / 1007 dd garbage, 1010 / 1010 ret
+    code = bytes([0xFF, 0x24, 0x85, 0x07, 0x10, 0x00, 0x00, 0xEF, 0xBE, 0xAD, 0xDE,
+                  0x10, 0x10, 0x00, 0x00, 0x90, 0xC3])
+    got = set()
+    true_extent(md, code, 0x1000, 0x1000, 0x1011, {0x1000}, reached=got)
+    assert 0x1010 in got, sorted(map(hex, got))
+
+    # The strchr shape: the found-exit sits BELOW the entry, after int3 padding.
+    #   1000 cc / 1001 X: dec eax / 1002 ret / 1003 E: test eax,eax / 1005 je 1001 / 1007 ret
+    code = bytes([0xCC, 0x48, 0xC3, 0x85, 0xC0, 0x74, 0xFA, 0xC3])
+    got = set()
+    assert true_extent(md, code, 0x1000, 0x1003, 0x1008, {0x1003}, reached=got) == (0x1008, True)
+    assert {0x1001, 0x1002} <= got, sorted(map(hex, got))
+    assert find_splits(md, code, 0x1000, 0x1008, {0x1000, 0x1003}) == set()
+    insns, leaders = linear_disassemble_function(md, code, 0x1000, min(got), 0x1008, reached=got)
+    assert [i.address for i in insns] == [0x1001, 0x1002, 0x1003, 0x1005, 0x1007]
+
+    # A negative index: the arms sit below the displacement (memcpy's backward
+    # copy). 1000 jmp [ecx*4+100b] / 1007 dd 100f / 100b dd garbage / 100f ret
+    code = bytes([0xFF, 0x24, 0x8D, 0x0B, 0x10, 0x00, 0x00, 0x0F, 0x10, 0x00, 0x00,
+                  0xEF, 0xBE, 0xAD, 0xDE, 0xC3])
+    got = set()
+    true_extent(md, code, 0x1000, 0x1000, 0x1010, {0x1000}, reached=got)
+    assert 0x100F in got, sorted(map(hex, got))
+
+    # MSVC 2's inline table: straight after the jmp, so the dword below it
+    # is the jmp's own displacement (the table address) and must not be read
+    # as a negative-index arm. 1000 jmp [eax*4+1007] / 1007 dd 100b / 100b ret
+    code = bytes([0xFF, 0x24, 0x85, 0x07, 0x10, 0x00, 0x00, 0x0B, 0x10, 0x00, 0x00, 0xC3])
+    got = set()
+    true_extent(md, code, 0x1000, 0x1000, 0x100C, {0x1000}, reached=got)
+    assert got == {0x1000, 0x100B}, sorted(map(hex, got))
+    # ...and a second jmp through the same table, further down, reads the
+    # same dword: it must not take it either (CRT memcpy's backward copy).
+    #   ... / 100c jmp [eax*4+1007] / 1013 ret
+    code = code + bytes([0xFF, 0x24, 0x85, 0x07, 0x10, 0x00, 0x00, 0xC3])
+    second = next(md.disasm(code[0xC:0x13], 0x100C))
+    assert _jump_table(second, code, 0x1000, 0x1000, 0x1014) == [0x100B]
+
+    # The _stat shape: a jump to a catalogued "entry" that lies inside this
+    # body's own span is internal, not a tail call.
+    #   1000 je 1006 / 1002 xor eax,eax / 1004 jmp 1009 / 1006 E: inc eax
+    #   1007 jmp 1009 / 1009 ret
+    code = bytes([0x74, 0x04, 0x31, 0xC0, 0xEB, 0x03, 0x40, 0xEB, 0x00, 0xC3])
+    got = set()
+    assert true_extent(md, code, 0x1000, 0x1000, 0x100A, {0x1000, 0x1006},
+                       reached=got) == (0x100A, True)
+    assert 0x1006 in got and 0x1007 in got, sorted(map(hex, got))
+
+    # A split: the catalog took 0x1003, the middle of a loop, for an entry.
+    #   1000 xor eax,eax / 1002 inc eax / 1003 cmp eax,5 / 1006 jb 1002 / 1008 ret
+    code = bytes([0x31, 0xC0, 0x40, 0x83, 0xF8, 0x05, 0x72, 0xFA, 0xC3])
+    ents = {0x1000, 0x1003}
+    assert true_extent(md, code, 0x1000, 0x1000, 0x1009, ents) == (0x1009, True)  # walks through it
+    assert find_splits(md, code, 0x1000, 0x1009, ents) == {0x1003}
+    assert true_extent(md, code, 0x1000, 0x1000, 0x1009, ents - {0x1003}) == (0x1009, True)
+    # ...and a real neighbour is not a split: C above only falls into D.
+    code = bytes([0x90, 0x90, 0xC3, 0x40, 0xC3])     # 1000 nop,nop,ret / 1003 D: inc, ret
+    assert find_splits(md, code, 0x1000, 0x1005, {0x1000, 0x1003}) == set()
+
+    fns = {1: {'calls_to': [2, 3]}, 2: {'calls_to': [4]}, 3: {}, 4: {'calls_to': [1]}}
+    assert closure(fns, [1], 10) == [1, 2, 3, 4]
+    assert closure(fns, [1], 2) == [1, 2]
 
     print('generate.py self-test OK')
 

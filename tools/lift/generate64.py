@@ -244,6 +244,110 @@ def plausible_code(read_va, va):
     return False
 
 
+def _fh4_uint(data, o):
+    """MSVC FH4's compressed unsigned int at `o`: (value, next offset).
+
+    The low bits of the first byte give the length: x0 one byte, 01 two,
+    011 three, 0111 four, 1111 a full u32 after the tag byte.
+    """
+    b = data[o]
+    if not b & 1:
+        return b >> 1, o + 1
+    if b & 3 == 1:
+        return struct.unpack_from('<H', data, o)[0] >> 2, o + 2
+    if b & 7 == 3:
+        return (struct.unpack_from('<I', data + b'\0', o)[0] & 0xffffff) >> 3, o + 3
+    if b & 0xf == 7:
+        return struct.unpack_from('<I', data, o)[0] >> 4, o + 4
+    return struct.unpack_from('<I', data, o + 1)[0], o + 5
+
+
+def _fh4_targets(data, secs, fo, base, owner):
+    """Code a __CxxFrameHandler4 FuncInfo4 at file offset `fo` names, or set().
+
+    FH4 (MSVC 2019+, most of Windows 11) packs its tables with compressed
+    ints. Its unwind map can call a destructor directly by RVA, with no
+    funclet in between, so a leaf `std::vector::~vector` is reached from
+    nowhere but this table: 2,000+ of diagtrack.dll's functions on 26100.4349.
+    Returns the unwind actions and catch handlers. Anything malformed, or a
+    target outside the section of `owner` (the function's RVA), returns
+    set(), since another personality routine's data can sit at the same spot.
+    """
+    sec = next((s for s in secs if s[1] <= owner < s[1] + max(s[2], s[4])), None)
+    if sec is None:
+        return set()
+
+    def code(rva):
+        return sec[1] <= rva < sec[1] + max(sec[2], sec[4])
+    out = set()
+    try:
+        hdr = data[fo]
+        if hdr & 0x80 or not hdr & 0x18:            # reserved bit; no map at all
+            return set()
+        o = fo + 1
+        if hdr & 0x04:                              # BBT flags
+            _, o = _fh4_uint(data, o)
+        um = tm = 0
+        if hdr & 0x08:
+            um = struct.unpack_from('<i', data, o)[0]; o += 4
+        if hdr & 0x10:
+            tm = struct.unpack_from('<i', data, o)[0]; o += 4
+        if um:
+            uo = rva_to_off(secs, um)
+            if uo is None:
+                return set()
+            n, uo = _fh4_uint(data, uo)
+            if n > 4096:
+                return set()
+            for _ in range(n):
+                v, uo = _fh4_uint(data, uo)
+                kind = v & 3                        # 0 none, 1/2 dtor(+obj), 3 funclet
+                if kind:
+                    a = struct.unpack_from('<i', data, uo)[0]; uo += 4
+                    if not code(a):
+                        return set()
+                    out.add(base + a)
+                    if kind != 3:
+                        _, uo = _fh4_uint(data, uo)
+        if tm:
+            to = rva_to_off(secs, tm)
+            if to is None:
+                return set()
+            n, to = _fh4_uint(data, to)
+            if n > 4096:
+                return set()
+            for _ in range(n):
+                for _f in range(3):                 # tryLow, tryHigh, catchHigh
+                    _, to = _fh4_uint(data, to)
+                ha = struct.unpack_from('<i', data, to)[0]; to += 4
+                ho = rva_to_off(secs, ha)
+                if ho is None:
+                    return set()
+                nh, ho = _fh4_uint(data, ho)
+                if nh > 256:
+                    return set()
+                for _ in range(nh):
+                    h = data[ho]; ho += 1
+                    if h & 1:                       # adjectives
+                        _, ho = _fh4_uint(data, ho)
+                    if h & 2:                       # type descriptor RVA
+                        ho += 4
+                    if h & 4:                       # catch object offset
+                        _, ho = _fh4_uint(data, ho)
+                    a = struct.unpack_from('<i', data, ho)[0]; ho += 4
+                    if not code(a):
+                        return set()
+                    out.add(base + a)
+                    for _c in range((h >> 4) & 3):  # continuation addresses
+                        if h & 8:
+                            ho += 4
+                        else:
+                            _, ho = _fh4_uint(data, ho)
+    except (struct.error, IndexError):
+        return set()
+    return out
+
+
 def eh_tables(data, base, secs):
     """Function starts that had a C++ try/catch, and the catch funclets.
 
@@ -277,7 +381,15 @@ def eh_tables(data, base, secs):
             if ver_flags & 0x20:                       # UNW_FLAG_CHAININFO
                 unwind = u32(tail + 8)
                 continue
-            if not (ver_flags & 0x08):                 # UNW_FLAG_EHANDLER
+            # UNW_FLAG_EHANDLER | UHANDLER: a function with destructors and no
+            # try has only the unwind handler, and its FH4 map is still there.
+            if not (ver_flags & 0x18):
+                break
+            if not (ver_flags & 0x08):
+                fi = u32(tail + 4)
+                fo = rva_to_off(secs, fi) if fi else None
+                if fo is not None and struct.unpack_from('<I', data, fo)[0] & 0xfffffff0 != 0x19930520:
+                    handlers.update(_fh4_targets(data, secs, fo, base, begin))
                 break
             fi = u32(tail + 4)
             if not fi:
@@ -289,6 +401,10 @@ def eh_tables(data, base, secs):
             # 0x1993052x is MSVC's; any other personality routine keeps its own
             # shape behind that pointer and is not ours to read.
             if magic & 0xfffffff0 != 0x19930520:
+                # FH4: entries only. Not added to `starts`, because the
+                # runtime's landing pads (eh64.c) read FH3 tables.
+                # ponytail: FH4 landing pads when a lifted module needs one.
+                handlers.update(_fh4_targets(data, secs, fo, base, begin))
                 break
             starts.add(base + begin)
             to = rva_to_off(secs, trymap)
