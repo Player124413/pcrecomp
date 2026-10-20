@@ -177,6 +177,36 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);   /* unbuffered: output survives a mid-run VM stop */
 
     if (argc >= 2 && strcmp(argv[1], "list") == 0) { list_processes(); return 0; }
+    /* grab EXENAME OUT.bin -- dump a running process's whole image at 0x400000 to a
+     * file (its in-memory SizeOfImage). Used to capture the decrypted SafeDisc shell
+     * (FS2000.EXE), which self-decrypts its .txt with no disc, as a reference oracle. */
+    if (argc >= 4 && strcmp(argv[1], "grab") == 0) {
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        PROCESSENTRY32 pe; DWORD pid = 0; unsigned char hdr[0x400]; SIZE_T got = 0;
+        IMAGE_NT_HEADERS32 *cnt; DWORD soi; unsigned char *buf; FILE *fp;
+        pe.dwSize = sizeof pe;
+        if (Process32First(snap, &pe)) do {
+            if (_stricmp(pe.szExeFile, argv[2]) == 0) { pid = pe.th32ProcessID; break; }
+        } while (Process32Next(snap, &pe));
+        CloseHandle(snap);
+        if (!pid) { fprintf(stderr, "grab: no process named %s\n", argv[2]); return 1; }
+        h = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, FALSE, pid);
+        if (!h) { fprintf(stderr, "grab: OpenProcess %lu failed %lu\n",
+                          (unsigned long)pid, GetLastError()); return 1; }
+        if (!ReadProcessMemory(h, (LPCVOID)0x400000, hdr, sizeof hdr, &got) || !got) {
+            fprintf(stderr, "grab: read header failed\n"); return 1; }
+        cnt = pe32(hdr, got);
+        soi = cnt ? cnt->OptionalHeader.SizeOfImage : 0x4B000;
+        buf = (unsigned char *)malloc(soi); got = 0;
+        ReadProcessMemory(h, (LPCVOID)0x400000, buf, soi, &got);
+        CloseHandle(h);
+        fp = fopen(argv[3], "wb");
+        if (!fp || fwrite(buf, 1, got, fp) != got) { fprintf(stderr, "grab: write failed\n"); return 1; }
+        fflush(fp); _commit(_fileno(fp)); fclose(fp);
+        printf("grab: PID %lu %s -> %s (%lu bytes, SizeOfImage 0x%lX)\n",
+               (unsigned long)pid, argv[2], argv[3], (unsigned long)got, (unsigned long)soi);
+        return 0;
+    }
     if (argc >= 3 && strcmp(argv[1], "launch") == 0) {
         memset(&si, 0, sizeof si); si.cb = sizeof si; memset(&pi, 0, sizeof pi);
         _snprintf(dir, sizeof dir, "%s", argv[2]);
@@ -201,6 +231,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: safedisc1_dump LOADER.EXE GAME.ICD [out.icd]  (launch+dump)\n"
                         "       safedisc1_dump attach GAME.ICD [out.icd]   (dump a running game)\n"
                         "       safedisc1_dump launch LOADER.EXE           (start it, don't poll)\n"
+                        "       safedisc1_dump grab EXENAME out.bin        (dump a process image at 0x400000)\n"
                         "       safedisc1_dump list                        (diagnostic table)\n");
         return 2;
     }

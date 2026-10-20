@@ -16,6 +16,9 @@ versions follow [SemVer](https://semver.org/).
   field gotchas it encodes: the dumper must not launch-and-poll the game (its
   memory reads trip SafeDisc's anti-debug and block decryption -- launch cleanly,
   then `attach`), and the hollowed child is identified by SizeOfImage alone.
+  Also a `grab EXENAME out.bin` mode that dumps a running process's whole image at
+  0x400000 -- used to capture the decrypted SafeDisc shell (FS2000.EXE), which
+  self-decrypts its `.txt` with no disc, as a reference oracle for the emulator.
 - drm/secdrv.py: emulate SafeDisc's SECDRV.SYS headless to answer the loader's
   `DeviceIoControl(\\.\Secdrv, 0xEF002407)` authentication challenge — the
   documented crux of the SafeDisc 1 unwrap. The 14 KB driver runs under its own
