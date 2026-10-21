@@ -176,6 +176,18 @@ int main(void) {
     uint32_t args[2] = { 40, 2 };
     ok("hle_call_guest ran the callback", hle_call_guest(VA_ADD, 2, args) == 42);
 
+    /* 6. the display modes: the table, and the display's own size in order */
+    int m[HLE_DD_MAX_MODES][2], n0 = hle_dd_modes(0, 0, m), n, at = -1, sorted = 1;
+    ok("the modes reach 4K", m[n0 - 1][0] == 3840 && m[n0 - 1][1] == 2160);
+    ok("a display already in the table is not listed twice", hle_dd_modes(1920, 1080, m) == n0);
+    n = hle_dd_modes(1512, 982, m);                      /* a 14" MacBook's logical size */
+    for (int i = 0; i < n; i++) {
+        if (m[i][0] == 1512 && m[i][1] == 982) at = i;
+        if (i && (m[i][0] < m[i - 1][0] || (m[i][0] == m[i - 1][0] && m[i][1] < m[i - 1][1]))) sorted = 0;
+    }
+    ok("a display's own size is listed, in order", n == n0 + 1 && at >= 0 && sorted);
+    ok("a display past 4K is not", hle_dd_modes(5120, 2880, m) == n0);
+
     if (fails == 0) printf("win32hle_selftest: all checks passed\n");
     return fails != 0;
 }

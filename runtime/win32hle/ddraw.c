@@ -213,27 +213,50 @@ static void dd_CreateSurface(void) {                     /* (this, &DDSURFACEDES
 }
 static void dd_DuplicateSurface(void) { RET(DDERR_UNSUPPORTED, 3); }
 
+/* The modes a game is offered: the common 4:3, 16:9 and 16:10 sizes up to 4K
+ * and the usual ultrawides, and the display's own size (its logical size on
+ * a Retina Mac), which the window shows at whole pixels. Nothing past
+ * 3840x2160, the largest the games here are tested at. */
 static const int g_modes[][2] = { { 640, 480 }, { 800, 600 }, { 1024, 768 }, { 1152, 864 }, { 1280, 720 }, { 1280, 768 },
                                   { 1280, 800 }, { 1280, 960 }, { 1280, 1024 }, { 1360, 768 }, { 1366, 768 }, { 1440, 900 },
-                                  { 1600, 900 }, { 1600, 1200 }, { 1680, 1050 }, { 1920, 1080 }, { 1920, 1200 } };
+                                  { 1600, 900 }, { 1600, 1200 }, { 1680, 1050 }, { 1920, 1080 }, { 1920, 1200 },
+                                  { 2560, 1080 }, { 2560, 1440 }, { 2560, 1600 }, { 3440, 1440 }, { 3840, 1600 },
+                                  { 3840, 2160 } };
+#define NMODES ((int)(sizeof g_modes / sizeof *g_modes))
+int hle_dd_modes(int dw, int dh, int (*out)[2]) {      /* the table, with the display's size in its place */
+    int n = 0;
+    if (dw < 640 || dh < 480 || dw > 3840 || dh > 2160) dw = 0;
+    for (int i = 0; i < NMODES; i++) {
+        if (dw && (dw < g_modes[i][0] || (dw == g_modes[i][0] && dh <= g_modes[i][1]))) {
+            if (dw != g_modes[i][0] || dh != g_modes[i][1]) out[n][0] = dw, out[n++][1] = dh;
+            dw = 0;
+        }
+        out[n][0] = g_modes[i][0], out[n++][1] = g_modes[i][1];
+    }
+    return n;
+}
 static void dd_EnumDisplayModes(void) {                  /* (this, flags, desc filter, ctx, callback) */
     uint32_t cb = A32(4), filter = A32(2), ctx = A32(3), mark = hle_scratch_mark();
     uint32_t dva = hle_scratch(27 * 4);
     uint32_t *d = (uint32_t *)hle_ptr(dva);
+    int modes[HLE_DD_MAX_MODES][2], dw = 0, dh = 0;
+    hle_screen_desktop(&dw, &dh);
+    int n = hle_dd_modes(dw, dh, modes);
     for (int bpp = 8; bpp <= 32; bpp += 8) {
         if (bpp == 24) continue;
-        for (size_t i = 0; i < sizeof g_modes / sizeof *g_modes; i++) {
-            if (filter && (MEM32(filter + 4) & DDSD_WIDTH) && MEM32(filter + 12) != (uint32_t)g_modes[i][0]) continue;
-            if (filter && (MEM32(filter + 4) & DDSD_HEIGHT) && MEM32(filter + 8) != (uint32_t)g_modes[i][1]) continue;
+        for (int i = 0; i < n; i++) {
+            if (filter && (MEM32(filter + 4) & DDSD_WIDTH) && MEM32(filter + 12) != (uint32_t)modes[i][0]) continue;
+            if (filter && (MEM32(filter + 4) & DDSD_HEIGHT) && MEM32(filter + 8) != (uint32_t)modes[i][1]) continue;
             if (filter && (MEM32(filter + 4) & DDSD_PIXELFORMAT) && MEM32(filter + 84) != (uint32_t)bpp) continue;
             memset(d, 0, 27 * 4);
             d[0] = 108;
             d[1] = DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT | DDSD_REFRESHRATE;
-            d[2] = (uint32_t)g_modes[i][1], d[3] = (uint32_t)g_modes[i][0], d[4] = (uint32_t)(g_modes[i][0] * bpp / 8);
+            d[2] = (uint32_t)modes[i][1], d[3] = (uint32_t)modes[i][0], d[4] = (uint32_t)(modes[i][0] * bpp / 8);
             d[6] = 60;
             put_pf(dva + 18 * 4, bpp);
-            uint32_t a[2] = { dva, ctx };
-            if (!hle_call_guest(cb, 2, a)) { hle_scratch_release(mark); RET(DD_OK, 5); }   /* DDENUMRET_CANCEL */
+            uint32_t a[2] = { dva, ctx }, more = hle_call_guest(cb, 2, a);
+            if (trace()) fprintf(stderr, "[ddraw] EnumDisplayModes -> 0x%08X: %dx%dx%d\n", cb, modes[i][0], modes[i][1], bpp);
+            if (!more) { hle_scratch_release(mark); RET(DD_OK, 5); }   /* DDENUMRET_CANCEL */
         }
     }
     hle_scratch_release(mark);
