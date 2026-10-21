@@ -6,6 +6,12 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- win32hle: a host's popup menu over the picture (`hle_screen_menu`), the kind
+  a Windows presenter opens on F10: at the mouse, submenus beside their item,
+  check marks and key hints, the mouse or the arrow keys, Enter and Esc. The
+  game has no input while it is open. `hle_screen_fullscreen` and
+  `hle_screen_settings` set and read what F11 and F12 do, and `hle_font_file`
+  finds a TrueType file for a Windows face.
 - Win16 accelerators: `LoadAccelerators` builds the `RT_ACCELERATOR` resource
   into a Win32 table and `TranslateAccelerator` runs it, so keyboard shortcuts
   work (SimAnt: 47, Shift+0 pauses). `TranslateMessage` is real, so typing
