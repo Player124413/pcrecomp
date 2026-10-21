@@ -326,6 +326,11 @@ typedef struct hle_menu_item {
 } hle_menu_item_t;
 void hle_screen_menu(const hle_menu_item_t *items, int n, void (*chosen)(int id));
 int  hle_screen_menu_open(void);
+int  hle_screen_desktop(int *w, int *h);  /* the display's size (logical on a Mac); 0 headless */
+/* The display modes DirectDraw offers (ddraw.c), smallest first, with a
+ * display of dw x dh among them (0 x 0: none); returns how many. */
+#define HLE_DD_MAX_MODES 32
+int  hle_dd_modes(int dw, int dh, int (*out)[2]);
 const char *hle_font_file(const char *face, int bold, int italic);   /* a TrueType file for a Windows face (gdidc.c) */
 extern const win32hle_shim win32hle_advapi32[];       /* the registry; COMCTL32, VERSION, SHELL32 */
 /* The registry (advapi32.c), in memory: seeded by the host, optionally saved

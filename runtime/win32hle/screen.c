@@ -487,6 +487,16 @@ static void menu_draw(void) {
 }
 
 int hle_screen_menu_open(void) { return g_menu_depth > 0; }
+
+/* The size of the display the window is on (the first, before it opens):
+ * SDL's desktop mode, in points, so a Retina Mac's logical size. */
+int hle_screen_desktop(int *w, int *h) {
+    SDL_DisplayMode m;
+    int i = g_win ? SDL_GetWindowDisplayIndex(g_win) : 0;
+    if (!SDL_WasInit(SDL_INIT_VIDEO) || SDL_GetDesktopDisplayMode(i < 0 ? 0 : i, &m) != 0) return 0;
+    *w = m.w, *h = m.h;
+    return 1;
+}
 void hle_screen_menu(const hle_menu_item_t *items, int n, void (*chosen)(int id)) {
     int pw, ph, ww, wh, mx, my;
     if (!g_ren || !items || n <= 0) return;

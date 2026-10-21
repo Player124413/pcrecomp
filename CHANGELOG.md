@@ -12,6 +12,10 @@ versions follow [SemVer](https://semver.org/).
   game has no input while it is open. `hle_screen_fullscreen` and
   `hle_screen_settings` set and read what F11 and F12 do, and `hle_font_file`
   finds a TrueType file for a Windows face.
+- win32hle: DirectDraw offers 1440p, 2560x1600, the 21:9 sizes and 4K, and
+  the display's own size (its logical size on a Retina Mac), so a game's own
+  resolution list has them; nothing past 3840x2160 (`hle_dd_modes`,
+  `hle_screen_desktop`). It stopped at 1920x1200.
 - Win16 accelerators: `LoadAccelerators` builds the `RT_ACCELERATOR` resource
   into a Win32 table and `TranslateAccelerator` runs it, so keyboard shortcuts
   work (SimAnt: 47, Shift+0 pauses). `TranslateMessage` is real, so typing
