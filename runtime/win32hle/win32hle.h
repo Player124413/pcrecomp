@@ -309,6 +309,24 @@ extern int (*hle_screen_compose_hook)(const uint8_t *px16, int pitch, int w, int
 int  hle_screen_scale(const char *name);   /* sharp, smooth, crt, nearest, integer: 0 if unknown */
 void hle_screen_bars(int blur);            /* the bars beside the picture: a blur of it, or black */
 extern void (*hle_screen_settings_hook)(const char *scale, int bars, int fullscreen);   /* F11/F12 changed them */
+void hle_screen_fullscreen(int on);        /* as F11 does, the settings hook told */
+const char *hle_screen_settings(int *bars, int *fullscreen);   /* the scaling now; bars and fullscreen if asked */
+/* A popup menu over the picture, the kind the Windows presenter opens on F10:
+ * at the mouse, a submenu beside its item, the arrow keys, Enter and a click
+ * to choose, Esc or a click outside to close. The game has no input while it
+ * is open. The items are the caller's and must outlive the menu; chosen(id)
+ * runs on the game's thread, after the menu has closed. No-op headless. */
+typedef struct hle_menu_item {
+    const char *label;                     /* NULL: a separator */
+    const char *hint;                      /* right-aligned (its key: "F12"), or NULL */
+    int id;                                /* given to chosen(); 0 without a submenu: grayed */
+    int checked;
+    const struct hle_menu_item *sub;       /* a submenu of nsub items, instead of an id */
+    int nsub;
+} hle_menu_item_t;
+void hle_screen_menu(const hle_menu_item_t *items, int n, void (*chosen)(int id));
+int  hle_screen_menu_open(void);
+const char *hle_font_file(const char *face, int bold, int italic);   /* a TrueType file for a Windows face (gdidc.c) */
 extern const win32hle_shim win32hle_advapi32[];       /* the registry; COMCTL32, VERSION, SHELL32 */
 /* The registry (advapi32.c), in memory: seeded by the host, optionally saved
  * to a file on every write. Roots are the HKEY_ values (HKLM 0x80000002). */

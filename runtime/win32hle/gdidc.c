@@ -201,7 +201,7 @@ static void g_AddFontResourceA(void) {
 }
 static void g_RemoveFontResourceA(void) { RET(1, 1); }
 
-static const char *font_file(const char *face, int bold, int italic) {
+const char *hle_font_file(const char *face, int bold, int italic) {
     static char path[512];
     for (int i = 0; i < g_nadded; i++) if (!strcasecmp(g_added[i].family, face)) return g_added[i].path;   /* ponytail: one file per face, its style whatever bold asks */
     const char *family = "Liberation Sans", *style = bold && italic ? "Bold Italic" : bold ? "Bold" : italic ? "Italic" : "Regular";
@@ -247,7 +247,7 @@ static font_t *FONT(uint32_t h) {
 static TTF_Font *ttf_of(font_t *f) {
     if (f->ttf) return f->ttf;
     if (!TTF_WasInit() && TTF_Init() != 0) return NULL;
-    const char *file = font_file(f->face, f->weight >= 600, f->italic);
+    const char *file = hle_font_file(f->face, f->weight >= 600, f->italic);
     if (!file) { fprintf(stderr, "[gdi] no TrueType font for \"%s\": text is not drawn\n", f->face); return NULL; }
     /* A negative height is the em in pixels; a positive one the cell (ascent
      * plus descent), which for these faces is about 1.15 em. */

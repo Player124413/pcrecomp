@@ -22,6 +22,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include "win32hle.h"
 
 #define WM_MOUSEMOVE   0x0200u
@@ -61,6 +62,19 @@ void hle_screen_bars(int blur) { g_bars = blur != 0; }
 static void settings_changed(void) {
     g_shown_seq = ~0u;
     if (hle_screen_settings_hook) hle_screen_settings_hook(k_modes[g_mode], g_bars, g_fullscreen);
+}
+static void menu_draw(void);
+static int g_menu_depth;                                 /* hle_screen_menu's levels open; 0: closed */
+static void set_fullscreen(int on) {
+    g_fullscreen = on, g_menu_depth = 0;
+    if (g_win) SDL_SetWindowFullscreen(g_win, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+    settings_changed();
+}
+void hle_screen_fullscreen(int on) { set_fullscreen(on != 0); }
+const char *hle_screen_settings(int *bars, int *fullscreen) {
+    if (bars) *bars = g_bars;
+    if (fullscreen) *fullscreen = g_fullscreen;
+    return k_modes[g_mode];
 }
 static uint32_t *g_conv;                                 /* 8-bit frames converted */
 static size_t g_conv_n;
@@ -253,6 +267,7 @@ static void present(void) {
         }
         SDL_SetRenderDrawBlendMode(g_ren, SDL_BLENDMODE_NONE);
     }
+    if (g_menu_depth) menu_draw();
     SDL_RenderPresent(g_ren);
 }
 
@@ -281,8 +296,8 @@ static void update_cursor(void) {
     static int was_shown = 0;
     static uint32_t was_handle;
     static SDL_Cursor *made;
-    int show = hle_screen_cursor_hook && hle_screen_cursor_hook();
-    uint32_t handle = hle_current_cursor();
+    int show = g_menu_depth || (hle_screen_cursor_hook && hle_screen_cursor_hook());
+    uint32_t handle = g_menu_depth ? 0 : hle_current_cursor();   /* over a menu, the system arrow */
     if (show == was_shown && (!show || handle == was_handle)) return;
     if (show && handle != was_handle) {
         const hle_cursor_image_t *img = hle_cursor_image(handle);
@@ -297,10 +312,208 @@ static void update_cursor(void) {
     was_shown = show;
 }
 
+/* ---- the popup menu (hle_screen_menu) ----
+ * Drawn over the picture in the renderer's pixels, in a desktop menu's look:
+ * light rows, a blue highlight, a check mark, a submenu's arrow. */
+#define MENU_LEVELS 4
+static struct { const hle_menu_item_t *items; int n, x, y, w, h, sel; } g_menu[MENU_LEVELS];
+static void (*g_menu_chosen)(int id);
+static TTF_Font *g_menu_font;
+static int g_menu_scale, g_menu_eat_up;                  /* renderer pixels per window point; the closing click's release */
+
+static int menu_ok(const hle_menu_item_t *it) { return it->label && (it->sub || it->id); }
+static int menu_item_h(const hle_menu_item_t *it) {
+    return it->label ? TTF_FontHeight(g_menu_font) + 8 * g_menu_scale : 7 * g_menu_scale;
+}
+static int menu_text_w(const char *s) {
+    int w = 0, h;
+    if (s && *s) TTF_SizeUTF8(g_menu_font, s, &w, &h);
+    return w;
+}
+static void menu_dirty(void) { g_shown_seq = ~0u; }
+static void menu_close(void) { g_menu_depth = 0; menu_dirty(); }
+
+/* Level l at (x, y), kept inside the window: a submenu that would leave it
+ * on the right opens to its parent's left instead. */
+static void menu_place(int l, int x, int y) {
+    int pw, ph, s = g_menu_scale, w = 0, h = 2 * s;
+    SDL_GetRendererOutputSize(g_ren, &pw, &ph);
+    for (int i = 0; i < g_menu[l].n; i++) {
+        const hle_menu_item_t *it = &g_menu[l].items[i];
+        int iw = menu_text_w(it->label) + (it->hint ? menu_text_w(it->hint) + 32 * s : 0);
+        if (iw > w) w = iw;
+        h += menu_item_h(it);
+    }
+    w += 2 * 26 * s;                                     /* the check's column and the arrow's */
+    if (x + w > pw) x = l ? g_menu[l - 1].x - w : pw - w;
+    if (y + h > ph) y = ph - h;
+    g_menu[l].x = x < 0 ? 0 : x, g_menu[l].y = y < 0 ? 0 : y, g_menu[l].w = w, g_menu[l].h = h, g_menu[l].sel = -1;
+}
+static int menu_row_y(int l, int row) {
+    int y = g_menu[l].y + g_menu_scale;
+    for (int i = 0; i < row; i++) y += menu_item_h(&g_menu[l].items[i]);
+    return y;
+}
+static int menu_first(int l, int from, int step) {      /* the next item that can be chosen, or -1 */
+    for (int k = 0, i = from; k < g_menu[l].n; k++) {
+        i = (i + step + g_menu[l].n) % g_menu[l].n;
+        if (menu_ok(&g_menu[l].items[i])) return i;
+    }
+    return -1;
+}
+/* Row `row` of level l is highlighted: its submenu opens, any deeper closes. */
+static void menu_select(int l, int row) {
+    const hle_menu_item_t *it = &g_menu[l].items[row];
+    g_menu[l].sel = row, g_menu_depth = l + 1;
+    if (it->sub && it->nsub > 0 && l + 1 < MENU_LEVELS) {
+        g_menu[l + 1].items = it->sub, g_menu[l + 1].n = it->nsub;
+        menu_place(l + 1, g_menu[l].x + g_menu[l].w - 2 * g_menu_scale, menu_row_y(l, row) - g_menu_scale);
+        g_menu_depth = l + 2;
+    }
+    menu_dirty();
+}
+static void menu_choose(int l, int row) {
+    const hle_menu_item_t *it = &g_menu[l].items[row];
+    if (!menu_ok(it)) return;
+    if (it->sub) {                                       /* into the submenu, its first item */
+        menu_select(l, row);
+        if (g_menu_depth == l + 2) g_menu[l + 1].sel = menu_first(l + 1, -1, 1);
+        return;
+    }
+    void (*chosen)(int) = g_menu_chosen;
+    menu_close();
+    fprintf(stderr, "[screen] menu: %s\n", it->label);
+    if (chosen) chosen(it->id);
+}
+static int menu_hit(int x, int y, int *row) {           /* the deepest level under (x, y), or -1 */
+    for (int l = g_menu_depth - 1; l >= 0; l--) {
+        if (x < g_menu[l].x || x >= g_menu[l].x + g_menu[l].w || y < g_menu[l].y || y >= g_menu[l].y + g_menu[l].h) continue;
+        int ry = g_menu[l].y + g_menu_scale;
+        *row = -1;
+        for (int i = 0; i < g_menu[l].n && *row < 0; i++) {
+            ry += menu_item_h(&g_menu[l].items[i]);
+            if (y < ry) *row = i;
+        }
+        return l;
+    }
+    return -1;
+}
+static void menu_key(SDL_Scancode sc) {
+    int l = g_menu_depth - 1, sel = g_menu[l].sel;
+    if (sc == SDL_SCANCODE_ESCAPE) { if (l) g_menu_depth = l, menu_dirty(); else menu_close(); }
+    else if (sc == SDL_SCANCODE_F10) menu_close();
+    else if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN) {
+        int to = menu_first(l, sel < 0 && sc == SDL_SCANCODE_UP ? 0 : sel, sc == SDL_SCANCODE_UP ? -1 : 1);
+        if (to >= 0) g_menu[l].sel = to, g_menu_depth = l + 1, menu_dirty();
+    }
+    else if (sc == SDL_SCANCODE_LEFT && l) g_menu_depth = l, menu_dirty();
+    else if (sel >= 0 && ((sc == SDL_SCANCODE_RIGHT && g_menu[l].items[sel].sub) ||
+                          sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER || sc == SDL_SCANCODE_SPACE))
+        menu_choose(l, sel);
+}
+/* An event while the menu is open: the menu's, never the game's. */
+static int menu_event(const SDL_Event *e) {
+    int x, y, row = -1, l, pw, ph, ww, wh;
+    switch (e->type) {
+    case SDL_MOUSEMOTION: case SDL_MOUSEBUTTONDOWN: case SDL_MOUSEBUTTONUP:
+        x = e->type == SDL_MOUSEMOTION ? e->motion.x : e->button.x;
+        y = e->type == SDL_MOUSEMOTION ? e->motion.y : e->button.y;
+        SDL_GetRendererOutputSize(g_ren, &pw, &ph);
+        SDL_GetWindowSize(g_win, &ww, &wh);
+        if (ww > 0 && wh > 0) x = x * pw / ww, y = y * ph / wh;
+        l = menu_hit(x, y, &row);
+        if (e->type == SDL_MOUSEMOTION) { if (l >= 0 && row >= 0 && g_menu[l].sel != row) menu_select(l, row); }
+        else if (e->type == SDL_MOUSEBUTTONDOWN) {
+            g_menu_eat_up = 1;                           /* a click that closes the menu: its release isn't the game's */
+            if (l < 0) menu_close(); else if (row >= 0) menu_choose(l, row);
+        } else g_menu_eat_up = 0;
+        return 1;
+    case SDL_KEYDOWN: menu_key(e->key.keysym.scancode); return 1;
+    case SDL_KEYUP: case SDL_TEXTINPUT: case SDL_MOUSEWHEEL: return 1;
+    default: return 0;
+    }
+}
+
+static void menu_text(const char *s, int x, int y, SDL_Color c) {
+    SDL_Surface *t = s && *s ? TTF_RenderUTF8_Blended(g_menu_font, s, c) : NULL;
+    if (!t) return;
+    SDL_Texture *tx = SDL_CreateTextureFromSurface(g_ren, t);   /* ponytail: made each frame; a cache if a menu ever grows long */
+    SDL_Rect r = { x, y, t->w, t->h };
+    if (tx) SDL_RenderCopy(g_ren, tx, NULL, &r), SDL_DestroyTexture(tx);
+    SDL_FreeSurface(t);
+}
+static void menu_lines(const int *pts, int n, int dx, int dy) {   /* a stroke two pixels wide per scale */
+    for (int t = 0; t < 2 * g_menu_scale; t++)
+        for (int i = 0; i + 3 < 2 * n; i += 2)
+            SDL_RenderDrawLine(g_ren, dx + pts[i] * g_menu_scale, dy + pts[i + 1] * g_menu_scale + t,
+                               dx + pts[i + 2] * g_menu_scale, dy + pts[i + 3] * g_menu_scale + t);
+}
+static void menu_draw(void) {
+    int s = g_menu_scale, fh = TTF_FontHeight(g_menu_font);
+    for (int l = 0; l < g_menu_depth; l++) {
+        SDL_Rect box = { g_menu[l].x, g_menu[l].y, g_menu[l].w, g_menu[l].h };
+        SDL_SetRenderDrawColor(g_ren, 242, 242, 242, 255);
+        SDL_RenderFillRect(g_ren, &box);
+        SDL_SetRenderDrawColor(g_ren, 150, 150, 150, 255);
+        SDL_RenderDrawRect(g_ren, &box);
+        int y = g_menu[l].y + s;
+        for (int i = 0; i < g_menu[l].n; i++) {
+            const hle_menu_item_t *it = &g_menu[l].items[i];
+            int h = menu_item_h(it), x = g_menu[l].x;
+            if (!it->label) {
+                SDL_SetRenderDrawColor(g_ren, 200, 200, 200, 255);
+                SDL_Rect sep = { x + 8 * s, y + h / 2, g_menu[l].w - 16 * s, s };
+                SDL_RenderFillRect(g_ren, &sep);
+                y += h;
+                continue;
+            }
+            int lit = i == g_menu[l].sel && menu_ok(it);
+            SDL_Color c = lit ? (SDL_Color){ 255, 255, 255, 255 } : menu_ok(it) ? (SDL_Color){ 20, 20, 20, 255 }
+                                                                               : (SDL_Color){ 150, 150, 150, 255 };
+            if (lit) {
+                SDL_Rect r = { x + 2 * s, y, g_menu[l].w - 4 * s, h };
+                SDL_SetRenderDrawColor(g_ren, 0, 103, 192, 255);
+                SDL_RenderFillRect(g_ren, &r);
+            }
+            SDL_SetRenderDrawColor(g_ren, c.r, c.g, c.b, 255);
+            int mid = y + h / 2;
+            if (it->checked) { static const int tick[] = { 9, 0, 12, 3, 18, -4 }; menu_lines(tick, 3, x, mid - s); }
+            if (it->sub) { static const int arrow[] = { 0, -4, 4, 0, 0, 4 }; menu_lines(arrow, 3, x + g_menu[l].w - 16 * s, mid - s); }
+            menu_text(it->label, x + 26 * s, y + (h - fh) / 2, c);
+            if (it->hint) menu_text(it->hint, x + g_menu[l].w - 26 * s - menu_text_w(it->hint), y + (h - fh) / 2, c);
+            y += h;
+        }
+    }
+}
+
+int hle_screen_menu_open(void) { return g_menu_depth > 0; }
+void hle_screen_menu(const hle_menu_item_t *items, int n, void (*chosen)(int id)) {
+    int pw, ph, ww, wh, mx, my;
+    if (!g_ren || !items || n <= 0) return;
+    SDL_GetRendererOutputSize(g_ren, &pw, &ph);
+    SDL_GetWindowSize(g_win, &ww, &wh);
+    int scale = ww > 0 && pw >= 2 * ww ? 2 : 1;          /* ponytail: 1x or 2x; a fractional HiDPI scale gets 1x */
+    if (!g_menu_font || scale != g_menu_scale) {
+        const char *path = TTF_WasInit() || TTF_Init() == 0 ? hle_font_file("MS Sans Serif", 0, 0) : NULL;
+        if (g_menu_font) TTF_CloseFont(g_menu_font);
+        g_menu_font = path ? TTF_OpenFont(path, 16 * scale) : NULL;
+        g_menu_scale = scale;
+        if (!g_menu_font) { fprintf(stderr, "[screen] no font for the menu: install fonts-liberation\n"); return; }
+    }
+    SDL_GetMouseState(&mx, &my);
+    if (ww > 0 && wh > 0) mx = mx * pw / ww, my = my * ph / wh;
+    g_menu[0].items = items, g_menu[0].n = n;
+    menu_place(0, mx, my);
+    g_menu_depth = 1, g_menu_chosen = chosen, g_menu_eat_up = 0;
+    menu_dirty();
+}
+
 void hle_screen_pump(void) {
     SDL_Event e;
     if (g_win) update_cursor();
     while (g_win && SDL_PollEvent(&e)) {
+        if (g_menu_depth && menu_event(&e)) continue;
+        if (g_menu_eat_up && e.type == SDL_MOUSEBUTTONUP) { g_menu_eat_up = 0; continue; }
         switch (e.type) {
         case SDL_QUIT: {
             uint32_t h = hle_first_hwnd();
@@ -313,11 +526,7 @@ void hle_screen_pump(void) {
             if (hle_screen_key_hook && hle_screen_key_hook((int)sc, e.type == SDL_KEYDOWN)) break;
             /* the presenter's keys, the Windows build's: they do not reach the game */
             if ((sc == SDL_SCANCODE_RETURN && (e.key.keysym.mod & KMOD_ALT)) || sc == SDL_SCANCODE_F11) {
-                if (e.type == SDL_KEYDOWN) {
-                    g_fullscreen = !g_fullscreen;
-                    SDL_SetWindowFullscreen(g_win, g_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
-                    settings_changed();
-                }
+                if (e.type == SDL_KEYDOWN) set_fullscreen(!g_fullscreen);
                 break;
             }
             if (sc == SDL_SCANCODE_F12) {
@@ -348,6 +557,7 @@ void hle_screen_pump(void) {
             break;
         }
         case SDL_WINDOWEVENT:
+            if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) g_menu_depth = 0;   /* placed for the old size */
             if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || e.window.event == SDL_WINDOWEVENT_EXPOSED) g_shown_seq = ~0u;
             break;
         default: break;
