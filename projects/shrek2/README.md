@@ -74,8 +74,9 @@ Two consequences worth knowing before the first run:
 | Imports | 438 from 10 DLLs: `Core.dll` 175, `Window.dll` 146, `KERNEL32` 52, `USER32` 26, `MSVCR70` 25, `Engine.dll` 9, `SHELL32` 2, `comdlg32` 1, `d3d8` 1, `DDRAW` 1 |
 | **Functions lifted** | **1,644** |
 | Generated C | **14.5 MB** in 5 `recomp_*.c`, plus `recomp_funcs.h`, `recomp_dispatch.c`, `recomp_target.h` |
-| Executable bytes catalogued | 87,476 / 135,168 (**64.72 %**) |
-| … of the rest | 43,692 bytes are `int3`/`nop` alignment fill, **4,000 bytes are real** (import thunks and bodies reached only through a computed jump) |
+| Executable bytes catalogued | 87,476 / 135,168 (**64.72 %** of the section, **95.6 %** of the 91,476 that are code) |
+| … of the rest | 43,692 bytes are `int3`/`nop` alignment fill; **4,000 bytes are real**, in 106 runs (import thunks and bodies reached only through a computed jump) |
+| Uncovered runs | 441 in total: 335 hold nothing but fill, 106 hold real bytes |
 | Gate failures | 0 |
 
 The 4 KB that no lifted body covers are listed in
@@ -83,6 +84,23 @@ The 4 KB that no lifted body covers are listed in
 mostly `jmp [IAT]` thunks that no instruction in the image references, i.e.
 reserved for calls that never happen in this build; they are not silently
 assumed to be data.
+
+**Why not 100 %.** Of the section's 135,168 bytes, 43,692 are linker fill
+between functions (`int3`/`nop` runs) — there is nothing there to lift, so the
+honest denominator is the 91,476 bytes that are instructions, and 95.6 % of
+those is lifted. The remaining 4,000 bytes are the two things a static scan
+cannot name: an import thunk nobody's instruction references (it exists for an
+address taken at run time), and a body reached only through a computed jump
+whose target table is built while the game runs. Chasing them harder is the
+wrong trade: the toolkit's function probes exist because a *false* function
+start is silently destructive — it splits a real body, and the second half
+loses every register the first half set up (`lift32`'s `push self; jmp epilogue`
+case) — while a *missing* one is loud and cheap to fix: `RECOMP_ICALL` prints
+`unresolved VA 0x…`, the host appends it to `shrek2_missing.txt`, and the next
+driver run takes it back with `--seed-file` (20 s per iteration). Coverage is
+therefore a metric here, not a gate; the gates are the three invariants that
+make a lift correct (no lift errors, every direct `call` resolves, dispatch
+table unique and sorted).
 
 Function recovery is the recursive-descent path (`disasm32.find_functions`),
 seeded with more than the entry point:
