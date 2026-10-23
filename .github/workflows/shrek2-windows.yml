@@ -207,7 +207,9 @@ jobs:
         run: |
           $have = Test-Path "${{ env.LIFT_DIR }}/recomp_dispatch.c"
           $mode = if ($have) { "real" } else { "stub" }
+          $dir  = if ($have) { "${{ env.LIFT_DIR }}" } else { "projects/shrek2/ci/stub" }
           "mode=$mode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "dir=$dir"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "have=$have" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "catalog: $mode (generated dispatch table present: $have)"
           if (-not $have) {
@@ -216,7 +218,7 @@ jobs:
 
       # A failing configure/build must explain itself: the job log is not
       # reachable from every environment, an annotation is.
-      - name: Configure (Visual Studio 2022, x86)
+      - name: Configure (newest installed Visual Studio, x86)
         shell: pwsh
         run: |
           $synthetic = if ("${{ steps.catalog.outputs.mode }}" -eq "stub") { "ON" } else { "OFF" }
@@ -267,16 +269,23 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item build/Release/shrek2.exe dist/
-          Copy-Item projects/shrek2/README.md dist/README.md
-          Copy-Item "${{ env.LIFT_DIR }}/recomp_target.h" dist/
-          @"
-          This build was configured with SHREK2_SYNTHETIC=${{ steps.catalog.outputs.mode == 'stub' && 'ON' || 'OFF' }}.
-          See README.md; a stub build contains one function, not the game.
-          "@ | Set-Content dist/BUILD.txt
-          Compress-Archive -Path dist/* -DestinationPath shrek2-win32.zip -Force
-          Get-Item dist/shrek2.exe, shrek2-win32.zip | Format-Table Name, Length
+          $ErrorActionPreference = "Stop"
+          try {
+            New-Item -ItemType Directory -Force dist | Out-Null
+            Copy-Item build/Release/shrek2.exe dist/
+            Copy-Item projects/shrek2/README.md dist/README.md
+            Copy-Item "${{ steps.catalog.outputs.dir }}/recomp_target.h" dist/
+            $mode = "${{ steps.catalog.outputs.mode }}"
+            @(
+              "This build was configured with SHREK2_SYNTHETIC=" + $(if ($mode -eq "stub") { "ON" } else { "OFF" }) + ".",
+              "See README.md; a stub build contains one function, not the game."
+            ) | Set-Content dist/BUILD.txt
+            Compress-Archive -Path dist/* -DestinationPath shrek2-win32.zip -Force
+            Get-Item dist/shrek2.exe, shrek2-win32.zip | Format-Table Name, Length
+          } catch {
+            Write-Host "::error::packaging failed :: $($_.Exception.Message)"
+            exit 1
+          }
 
       - name: Upload the executable
         uses: actions/upload-artifact@v4
