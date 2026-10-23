@@ -140,7 +140,8 @@ project:
    unit *and* the host for `x86-windows` with clang/mingw, and uploads the lift
    as a 14-day artifact together with `analysis/report.md`.
 2. **windows** (windows-latest) — downloads that artifact, builds
-   `shrek2.exe` with MSVC `-A Win32`, **runs it twice** (`SHREK2_HELP=1` must
+   `shrek2.exe` with MSVC (`cmake -A Win32`, default generator: whatever
+   Visual Studio the image has), **runs it twice** (`SHREK2_HELP=1` must
    exit 0, an empty game folder must exit 2), and uploads `shrek2.exe` and
    `shrek2-win32.zip`.
 3. On a GitHub release, the zip is attached to it.
