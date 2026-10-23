@@ -55,6 +55,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The clone below is of a *different* repository.  checkout persists
+          # an auth header scoped to this repository's GITHUB_TOKEN; sending it
+          # to github.com/<someone-else>/... gets a 403 instead of falling back
+          # to anonymous read, even for a public repo.
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -66,11 +72,18 @@ jobs:
         run: pip install -r projects/shrek2/requirements.txt
 
       - name: Fetch the game (System/ only)
+        env:
+          FILES_TOKEN: ${{ secrets.FILES_TOKEN }}   # empty for the public repo
         run: |
           set -euo pipefail
+          # A public repo needs no credentials at all; a private mirror can be
+          # cloned with a token in the URL via the FILES_TOKEN secret.
+          URL="https://github.com/${FILES_REPOSITORY}.git"
+          if [ -n "${FILES_TOKEN:-}" ]; then
+            URL="https://x-access-token:${FILES_TOKEN}@github.com/${FILES_REPOSITORY}.git"
+          fi
           git clone --filter=blob:none --no-checkout --depth 1 \
-                    --branch "${FILES_REF}" \
-                    "https://github.com/${FILES_REPOSITORY}.git" "${RUNNER_TEMP}/game"
+                    --branch "${FILES_REF}" "$URL" "${RUNNER_TEMP}/game"
           cd "${RUNNER_TEMP}/game"
           git sparse-checkout init --cone
           git sparse-checkout set System
@@ -141,6 +154,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Fetch the generated lift
         uses: actions/download-artifact@v4
