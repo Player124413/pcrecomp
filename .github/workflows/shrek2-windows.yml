@@ -205,24 +205,43 @@ jobs:
         id: catalog
         shell: pwsh
         run: |
-          if (Test-Path "${{ env.LIFT_DIR }}/recomp_dispatch.c") {
-            "mode=real"   >> $env:GITHUB_OUTPUT
-            "have=yes"    >> $env:GITHUB_OUTPUT
-            Write-Host "building the lift generated from the real game.exe"
-          } else {
-            "mode=stub"   >> $env:GITHUB_OUTPUT
-            "have=no"     >> $env:GITHUB_OUTPUT
-            Write-Host "::warning::No lift artifact in this run (the game binary was not reachable). Building against the stub catalog, so the host, the runtime and the MSVC path are still verified."
+          $have = Test-Path "${{ env.LIFT_DIR }}/recomp_dispatch.c"
+          $mode = if ($have) { "real" } else { "stub" }
+          "mode=$mode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "have=$have" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "catalog: $mode (generated dispatch table present: $have)"
+          if (-not $have) {
+            Write-Host "::warning::No lift artifact in this run (the game binary was not reachable). Building against the stub catalog so the host, the runtime and the MSVC path are still verified."
           }
 
+      # A failing configure/build must explain itself: the job log is not
+      # reachable from every environment, an annotation is.
       - name: Configure (Visual Studio 2022, x86)
         shell: pwsh
         run: |
           $synthetic = if ("${{ steps.catalog.outputs.mode }}" -eq "stub") { "ON" } else { "OFF" }
-          cmake -S projects/shrek2 -B build -G "Visual Studio 17 2022" -A Win32 -DSHREK2_SYNTHETIC=$synthetic
+          Write-Host "SHREK2_SYNTHETIC=$synthetic"
+          cmake --version | Select-Object -First 1
+          $log = & cmake -S projects/shrek2 -B build -G "Visual Studio 17 2022" -A Win32 "-DSHREK2_SYNTHETIC:BOOL=$synthetic" 2>&1
+          $code = $LASTEXITCODE
+          $log | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0) {
+            $tail = (($log | Select-Object -Last 12) -join " | ") -replace "`r?`n", " "
+            Write-Host "::error::cmake configure failed with $code :: $tail"
+            exit 1
+          }
 
       - name: Build Release
-        run: cmake --build build --config Release --parallel
+        shell: pwsh
+        run: |
+          $log = & cmake --build build --config Release --parallel 2>&1
+          $code = $LASTEXITCODE
+          $log | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0) {
+            $tail = (($log | Select-Object -Last 12) -join " | ") -replace "`r?`n", " "
+            Write-Host "::error::MSVC build failed with $code :: $tail"
+            exit 1
+          }
 
       - name: The executable starts, and says what it needs
         shell: pwsh
