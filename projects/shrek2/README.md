@@ -57,9 +57,10 @@ Two consequences worth knowing before the first run:
   slot (byte-scanned), so no lifted function installs an EH frame. Guest C++
   exceptions therefore never cross the lift; `runtime/native32/eh32.c` is
   linked but unused by this target.
-* **The exe allocates nothing in `.bss`-style gaps.** All of its state is in
-  `.data` at fixed VAs, which is why mapping the original image is enough and
-  why the mapping has to be at `0x10900000`.
+* **`.data` is mostly zero-filled pages.** Its virtual size is 203,212 bytes
+  against 40,960 on disk; `recomp_load_image` zeroes the whole span, so the
+  exe's uninitialised globals exist exactly where it expects them. That is why
+  the mapping must be at `0x10900000` — the code addresses them absolutely.
 
 ## What the lift is
 
@@ -119,7 +120,7 @@ cmake --build build --config Release --parallel
 32-bit and `runtime/native32` bridges to them with inline asm; CMake refuses a
 64-bit configure rather than failing later.
 
-`BUILD.md`-free quick path: [`build.bat`](build.bat) does the three steps with
+Quick path: [`build.bat`](build.bat) runs the same three steps with
 `SHREK2_GAME` pointing at the install.
 
 ### CI
@@ -162,8 +163,9 @@ game's `argv`:
 | `SHREK2_LOG=1` | write the log to `shrek2.log` |
 | `SHREK2_HELP=1` | print the switches and exit |
 
-Exit codes: `0` WinMain returned, `2` incomplete install, `3` the image could
-not be mapped, `4` imports unresolved, `5` the entry point is not in the catalog.
+Exit codes: `0` WinMain returned, `2` incomplete install or wrong image, `3`
+the image could not be mapped (or the entry point is not in the catalog), `4`
+binding left imports unresolved.
 
 ## What is verified, and what is not
 
