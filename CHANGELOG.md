@@ -45,6 +45,12 @@ versions follow [SemVer](https://semver.org/).
   at 0 all eight showed the same tool.
 
 ### Fixed
+- native32: a guest's code stays non-executable, so Windows' calls into it
+  always run the lift. Watcom sections (`VirtualSize` 0) are sized by
+  `SizeOfRawData`, and a built-in `VirtualProtect` drops the execute bit when
+  self-modifying code asks for `PAGE_EXECUTE_READWRITE` on its own code. POD
+  Gold's intro thread and window procedure had been running the original
+  machine code (#128).
 - win32hle: `SetWindowPos` and `BringWindowToTop` move a window in its
   siblings' z-order, and `GetWindow`, `GetTopWindow` and `ChildWindowFromPoint`
   follow it; before, the order was only creation order. Red Alert 2's
