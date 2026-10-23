@@ -345,8 +345,8 @@ static inline uint16_t _pop16(uint32_t *sp) {
 #define CMP_LE(a, b)   ((int32_t)(a) <= (int32_t)(b))       /* signed <= */
 #define CMP_G(a, b)    ((int32_t)(a) > (int32_t)(b))        /* signed > */
 #define CMP_GE(a, b)   ((int32_t)(a) >= (int32_t)(b))       /* signed >= */
-#define CMP_S(a, b)    ((int32_t)((uint32_t)(a) - (uint32_t)(b)) < 0)  /* sign flag */
-#define CMP_NS(a, b)   ((int32_t)((uint32_t)(a) - (uint32_t)(b)) >= 0)
+#define CMP_S(a, b)    ((((uint32_t)(a) - (uint32_t)(b)) >> 31) != 0)  /* sign flag */
+#define CMP_NS(a, b)   ((((uint32_t)(a) - (uint32_t)(b)) >> 31) == 0)
 #define CMP_O(a, b)    0  /* TODO: overflow detection */
 #define CMP_NO(a, b)   1
 #define CMP_P(a, b)    0  /* TODO: parity */
@@ -355,10 +355,13 @@ static inline uint16_t _pop16(uint32_t *sp) {
 /* Test-based conditions (from test a, b) */
 #define TEST_Z(a, b)   (((uint32_t)(a) & (uint32_t)(b)) == 0)
 #define TEST_NZ(a, b)  (((uint32_t)(a) & (uint32_t)(b)) != 0)
-#define TEST_S(a, b)   ((int32_t)((uint32_t)(a) & (uint32_t)(b)) < 0)
-#define TEST_NS(a, b)  ((int32_t)((uint32_t)(a) & (uint32_t)(b)) >= 0)
-#define TEST_G(a, b)   ((int32_t)((uint32_t)(a) & (uint32_t)(b)) > 0)
-#define TEST_LE(a, b)  ((int32_t)((uint32_t)(a) & (uint32_t)(b)) <= 0)
+/* SF is read as bit 31 of an unsigned value, never through an (int32_t) cast:
+ * MSVC 19.51 /O2 folds (int32_t)((uint32_t)byte << 24) >= 0 to true, which
+ * hid KotOR's main-menu buttons (kotor-recomp#1). TEST_G is 1..0x7FFFFFFF. */
+#define TEST_S(a, b)   (((((uint32_t)(a) & (uint32_t)(b))) >> 31) != 0)
+#define TEST_NS(a, b)  (((((uint32_t)(a) & (uint32_t)(b))) >> 31) == 0)
+#define TEST_G(a, b)   ((((uint32_t)(a) & (uint32_t)(b)) - 1u) <  0x7FFFFFFFu)
+#define TEST_LE(a, b)  ((((uint32_t)(a) & (uint32_t)(b)) - 1u) >= 0x7FFFFFFFu)
 
 /* Bit test (from bt) */
 #define BT_CF(base, bit) (((uint32_t)(base) >> ((uint32_t)(bit) & 31)) & 1)
