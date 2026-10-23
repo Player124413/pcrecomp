@@ -342,6 +342,11 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
 {
     (void)inst; (void)prev; (void)cmd; (void)show;
 
+    /* A fault inside lifted code is reported by host_veh, in full, and the
+     * process ends there; a Windows Error Reporting dialog on top of that only
+     * hides the report and blocks the next run. */
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+
     if (getenv("SHREK2_LOG")) {
         char log[MAX_PATH];
         GetModuleFileNameA(NULL, log, MAX_PATH);

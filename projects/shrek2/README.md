@@ -89,13 +89,14 @@ seeded with more than the entry point:
 * the entry point and every export,
 * **218 vtable slots** found structurally (`cpp/vtable_scan.py`) — a method
   reached only through a vtable is called by no `CALL` in the image,
-* **40+ alternate entry points** from `lift/recover.py` — direct calls that land
+* **35 alternate entry points** from `lift/recover.py` — direct calls that land
   inside an already-listed body,
 * plus the disassembler's own data-pointer scan (385 functions reachable only
   from data: static initialiser tables, class registration, vtables).
 
-The second pass unions the recovered entry points and re-disassembles; the
-catalog the lift is generated from is that fixpoint.
+The first pass yields **1,604** functions; the 35 recovered entry points (and 5
+more reached from them) take it to **1,644**, and that second catalog is what
+the lift is generated from.
 
 ## Building
 
@@ -176,6 +177,12 @@ Verified here (Linux, no Windows, no GPU):
 * the whole 14.5 MB of generated C **parses** (gcc, `-fsyntax-only`, against
   `runtime/recomp32/recomp_types.h`); no GCC-only constructs are used, so MSVC
   gets the same source;
+* the whole program **links as a 32-bit Windows PE**: host + `native32` +
+  `image_loader` + `recomp_trace` + 1,644 lifted functions, cross-built with
+  clang/mingw (Zig) — `zig cc -target x86-windows-gnu -mwindows`, 22 MB of
+  image, no unresolved symbols. That is a second compiler's opinion, not a
+  substitute for the MSVC build below; the two disagreeing is what the CI
+  workflow is for;
 * the coverage arithmetic above, and the explicit list of uncovered ranges.
 
 Not verified: the game running. That needs Windows, the real install and a GPU,

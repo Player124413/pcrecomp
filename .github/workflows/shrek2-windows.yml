@@ -94,6 +94,19 @@ jobs:
           diff -r "${LIFT_DIR}" "${RUNNER_TEMP}/lift2"
           echo "the two runs produced byte-identical C"
 
+      - name: Host gate (an independent compiler's opinion, before MSVC)
+        run: |
+          set -euo pipefail
+          # Zig ships a full 32-bit Windows (mingw) toolchain; compiling main.c
+          # against real Windows headers catches host bugs in a minute instead
+          # of after the MSVC job has built 14.5 MB of generated C.
+          pip install -q ziglang
+          ZIG=$(python3 -c "import ziglang,os;print(os.path.dirname(ziglang.__file__))")/zig
+          "$ZIG" cc -target x86-windows-gnu -std=gnu11 -c -w \
+            -I runtime/recomp32 -I runtime/native32 -I "${LIFT_DIR}" \
+            -o /tmp/host.o projects/shrek2/src/main.c
+          echo "host compiles for x86-windows"
+
       - name: Ship the report with the generated code
         run: cp projects/shrek2/analysis/report.md "${LIFT_DIR}/lift-report.md"
 
@@ -123,6 +136,9 @@ jobs:
     name: build shrek2.exe (Win32)
     needs: lift
     runs-on: windows-latest
+    permissions:
+      contents: write        # only the release step needs it
+
     steps:
       - uses: actions/checkout@v4
 

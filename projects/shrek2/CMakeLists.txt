@@ -107,19 +107,22 @@ set_target_properties(shrek2 PROPERTIES
 # -----------------------------------------------------------------------------
 # Regenerate the lift from the original binary (optional)
 #
-#   set SHREK2_GAME=C:\Games\Shrek 2\System\game.exe
+#   cmake -S projects/shrek2 -B build -A Win32 -DSHREK2_GAME="C:\...\game.exe"
 #   cmake --build build --target lift
+# (or set the SHREK2_GAME environment variable before configuring)
 # -----------------------------------------------------------------------------
+set(SHREK2_GAME "$ENV{SHREK2_GAME}" CACHE FILEPATH
+    "the original System/game.exe the lift is generated from")
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
     add_custom_target(lift
         COMMAND ${Python3_EXECUTABLE}
                 "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_lift.py"
-                --game "$ENV{SHREK2_GAME}"
+                --game "${SHREK2_GAME}"
                 --out  "${LIFT_DIR}"
                 --analysis "${CMAKE_CURRENT_SOURCE_DIR}/analysis"
         WORKING_DIRECTORY "${REPO_ROOT}"
-        COMMENT "Lifting game.exe (set SHREK2_GAME to its path)"
+        COMMENT "Lifting ${SHREK2_GAME}"
         VERBATIM)
 endif()
 
