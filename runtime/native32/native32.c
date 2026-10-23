@@ -231,6 +231,15 @@ static int native_module_at(uint32_t va) {
  * the section is made executable the first time it is called into. Its calls
  * back into lifted code fault on non-executable pages and take the callback
  * trampoline. */
+/* A section's size in memory. Watcom's linker leaves VirtualSize 0 on every
+ * section and puts the memory size in SizeOfRawData (POD's PODMMX.EXE, and
+ * image_loader.c's note on Nocturne), so a section sized by VirtualSize alone
+ * is empty: its code was never made non-executable, and a Windows callback
+ * into it ran the original machine code instead of the lift. */
+static uint32_t sec_size(const IMAGE_SECTION_HEADER* s) {
+    return s->Misc.VirtualSize ? s->Misc.VirtualSize : s->SizeOfRawData;
+}
+
 static int data_section_code(uint32_t va) {
     for (int i = 0; i < g_mod_n; i++) {
         uint32_t base = g_mods[i].base;
@@ -238,7 +247,7 @@ static int data_section_code(uint32_t va) {
         IMAGE_NT_HEADERS32* nt = (IMAGE_NT_HEADERS32*)(uintptr_t)(base + ((IMAGE_DOS_HEADER*)(uintptr_t)base)->e_lfanew);
         IMAGE_SECTION_HEADER* s = IMAGE_FIRST_SECTION(nt);
         for (int k = 0; k < nt->FileHeader.NumberOfSections; k++, s++) {
-            uint32_t lo = base + s->VirtualAddress, hi = lo + s->Misc.VirtualSize;
+            uint32_t lo = base + s->VirtualAddress, hi = lo + sec_size(s);
             if (va < lo || va >= hi) continue;
             if (s->Characteristics & IMAGE_SCN_MEM_EXECUTE) return 0;   /* lifted code */
             MEMORY_BASIC_INFORMATION mbi;
@@ -285,7 +294,7 @@ int native32_set_native(uint32_t base) {
             DWORD old;
             /* writable too: old code patches itself (software rasterisers) */
             if (s->Characteristics & IMAGE_SCN_MEM_EXECUTE)
-                VirtualProtect((void*)(uintptr_t)(base + s->VirtualAddress), s->Misc.VirtualSize,
+                VirtualProtect((void*)(uintptr_t)(base + s->VirtualAddress), sec_size(s),
                                PAGE_EXECUTE_READWRITE, &old);
         }
         g_mods[i].native = 1;
@@ -372,7 +381,7 @@ uint32_t native32_map(const char* path, uint32_t base) {
     for (int i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
         DWORD old;
         if (s->Characteristics & IMAGE_SCN_MEM_EXECUTE)
-            VirtualProtect((void*)(uintptr_t)(base + s->VirtualAddress), s->Misc.VirtualSize,
+            VirtualProtect((void*)(uintptr_t)(base + s->VirtualAddress), sec_size(s),
                            PAGE_READWRITE, &old);
     }
     return span;
@@ -641,6 +650,39 @@ static void shim_TerminateThread(void) {
  * (eh32.c handles C++ frames only), so the exception went unhandled and ended
  * the process with that code: Tiberium Wars, naming its first worker thread.
  * Returning is what the empty __except does. Any other code is raised for real. */
+/* VirtualProtect: a guest may make its own code writable, never executable.
+ * Old self-modifying code asks for PAGE_EXECUTE_READWRITE on its code
+ * section before patching it (POD's blitter, at start). Granted as asked,
+ * that undoes native32_map, and the next time Windows calls into the guest
+ * (a thread start, a window procedure) the original machine code runs
+ * natively instead of the lift. So on a lifted module's code the execute
+ * bit is dropped; the old protection reported back is what was really
+ * there. Modules set native (native32_set_native) get what they ask for. */
+static void shim_VirtualProtect(void) {
+    uint32_t* a = (uint32_t*)(uintptr_t)(g_esp + 4);
+    uint32_t lo = a[0], hi = a[0] + a[1];
+    DWORD prot = a[2];
+    for (int i = 0; i < g_mod_n; i++) {
+        uint32_t base = g_mods[i].base;
+        if (g_mods[i].native || hi <= base || lo >= base + g_mods[i].span) continue;
+        IMAGE_NT_HEADERS32* nt = (IMAGE_NT_HEADERS32*)(uintptr_t)(base + ((IMAGE_DOS_HEADER*)(uintptr_t)base)->e_lfanew);
+        IMAGE_SECTION_HEADER* s = IMAGE_FIRST_SECTION(nt);
+        for (int k = 0; k < nt->FileHeader.NumberOfSections; k++, s++) {
+            uint32_t slo = base + s->VirtualAddress, shi = slo + sec_size(s);
+            if (!(s->Characteristics & IMAGE_SCN_MEM_EXECUTE) || hi <= slo || lo >= shi) continue;
+            DWORD was = prot;
+            prot = prot == PAGE_EXECUTE_READWRITE ? PAGE_READWRITE :
+                   prot == PAGE_EXECUTE_WRITECOPY ? PAGE_WRITECOPY :
+                   prot == PAGE_EXECUTE_READ || prot == PAGE_EXECUTE ? PAGE_READONLY : prot;
+            if (prot != was && getenv("NATIVE32_LOG_THREADS"))
+                fprintf(stderr, "[native32] VirtualProtect(0x%08X, 0x%X, %08lX) on lifted code: %08lX\n",
+                        a[0], a[1], was, prot);
+        }
+    }
+    g_eax = VirtualProtect((void*)(uintptr_t)a[0], a[1], prot, (PDWORD)(uintptr_t)a[3]);
+    g_esp += 4 + 4 * 4;
+}
+
 static void shim_RaiseException(void) {
     uint32_t* a = (uint32_t*)(uintptr_t)(g_esp + 4);
     if (a[0] != 0x406D1388u)
@@ -664,6 +706,7 @@ static native32_shim_t g_builtin[] = {
     { "CreateThread", shim_CreateThread },
     { "RaiseException", shim_RaiseException },
     { "TerminateThread", shim_TerminateThread },
+    { "VirtualProtect", shim_VirtualProtect },
     { "_CxxThrowException", native32_shim_CxxThrowException },
     { "_ftol", native32_shim_ftol },
     { "_CIsqrt", native32_shim_CIsqrt }, { "_CIsin", native32_shim_CIsin },
