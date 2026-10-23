@@ -128,10 +128,11 @@ Quick path: [`build.bat`](build.bat) runs the same three steps with
 `.github/workflows/shrek2-windows.yml` builds it on every push that touches
 this project:
 
-1. **lift** (ubuntu) — sparse-clones `System/` from the public files repository
-   (~22 MB of a 785 MB repo, blob-filtered), runs the driver, **runs it twice
-   and diffs the output** (the lift is reproducible), then syntax-checks every
-   generated translation unit with gcc.
+1. **lift** (ubuntu) — downloads the one file the lift needs
+   (`System/game.exe`, 274 KB, from the public files repository), runs the
+   driver, **runs it twice and diffs the output** (the lift is reproducible),
+   compiles the host for x86-windows with clang/mingw as an early gate, then
+   syntax-checks every generated translation unit with gcc.
 2. **windows** (windows-latest) — MSVC `-A Win32` Release build, uploads
    `shrek2.exe` and `shrek2-win32.zip`.
 3. On a GitHub release, the zip is attached to it.
