@@ -11,7 +11,10 @@ name: Shrek 2 (Windows x86)
 #   windows  download that artifact and build shrek2.exe with MSVC x86.
 #
 # Where the binary comes from, in order:
-#   1. the `game_url` input (a direct link: release asset, object store, ...)
+#   1. `game_url` -- a link you paste in the "Run workflow" form: a zip archive
+#      or game.exe itself, on Hugging Face, Google Drive, or any plain URL.
+#      (A repository variable SHREK2_GAME_URL is used when the box is empty, so
+#      push/PR runs can use the same link without retyping it.)
 #   2. the files repository through a FILES_TOKEN secret (fine-grained PAT,
 #      Contents: read -- what a private repo needs)
 #   3. the files repository anonymously, refs: the input, `main`, `master`
@@ -41,7 +44,8 @@ on:
         description: "branch or tag in that repository"
         default: "main"
       game_url:
-        description: "direct URL to game.exe (overrides both of the above)"
+        description: "link to a zip with System/game.exe, or to game.exe itself (Hugging Face, Google Drive, or any URL); overrides the two above"
+        required: false
         default: ""
 
 concurrency:
@@ -51,7 +55,7 @@ concurrency:
 env:
   FILES_REPOSITORY: ${{ inputs.files_repository || 'Player124413/Files' }}
   FILES_REF: ${{ inputs.files_ref || 'main' }}
-  GAME_URL: ${{ inputs.game_url || '' }}
+  GAME_URL: ${{ inputs.game_url || vars.SHREK2_GAME_URL || '' }}
   LIFT_DIR: projects/shrek2/src/game/recomp/gen
 
 jobs:
@@ -77,21 +81,37 @@ jobs:
           pip install -r projects/shrek2/requirements.txt
           pip install ziglang          # clang + a 32-bit Windows sysroot
 
+      - name: Self-test the fetcher (offline)
+        run: python3 projects/shrek2/tools/fetch_game.py --selftest
+
       - name: Fetch System/game.exe
         id: fetch
         env:
           FILES_TOKEN: ${{ secrets.FILES_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           set -euo pipefail
           GAME="${RUNNER_TEMP}/game.exe"
+          ok=0
+
+          # 1. The link from the "Run workflow" form (or SHREK2_GAME_URL).
+          #    Handles Hugging Face, Google Drive's interstitial, and a zip with
+          #    System/game.exe anywhere inside.  See tools/fetch_game.py.
+          if [ -n "${GAME_URL:-}" ]; then
+            echo "::notice::fetching from the link given to this run: ${GAME_URL}"
+            if python3 projects/shrek2/tools/fetch_game.py --url "${GAME_URL}" --out "$GAME"; then
+              ok=1
+            else
+              echo "::warning::the link did not yield a game.exe; falling back to ${FILES_REPOSITORY}"
+            fi
+          fi
+
           try() {  # try <what> <curl args...>
             echo "::notice::fetching game.exe from $1"
             curl -fsSL --retry 2 --retry-delay 2 -o "$GAME" "${@:2}" && return 0
             rm -f "$GAME"
             return 1
           }
-          ok=0
-          if [ -n "${GAME_URL:-}" ]; then try "$GAME_URL" "$GAME_URL" && ok=1; fi
           if [ "$ok" = 0 ] && [ -n "${FILES_TOKEN:-}" ]; then
             try "api:${FILES_REPOSITORY}@${FILES_REF}" \
                 -H "Authorization: Bearer ${FILES_TOKEN}" \
@@ -106,7 +126,7 @@ jobs:
           done
           if [ "$ok" = 0 ]; then
             echo "have_game=0" >> "$GITHUB_OUTPUT"
-            echo "::warning::System/game.exe is not reachable, so there is nothing to lift. The Windows job will build the host against the stub catalog instead. To build the real thing, do any one of: make ${FILES_REPOSITORY} public; add a FILES_TOKEN secret (fine-grained PAT, Contents: read); or dispatch this workflow with game_url set to a direct link to game.exe."
+            echo "::warning::No game.exe from ${FILES_REPOSITORY} and no working game_url. Building the host against the stub catalog instead. To build the real executable, re-run this workflow with game_url set to a link (a zip with System/game.exe, on Hugging Face or Google Drive, works), or add a FILES_TOKEN secret."
             exit 0
           fi
           echo "have_game=1" >> "$GITHUB_OUTPUT"

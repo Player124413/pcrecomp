@@ -149,22 +149,45 @@ project:
 The game is never committed and never redistributed — the workflow fetches the
 binary, and the generated C is a build artifact (the repo's
 [`tools/audit_repo.py`](../../tools/audit_repo.py) classifies lifted output as a
-derivative of the binary, so no public project here tracks it). Where the
-binary comes from, in order:
+derivative of the binary, so no public project here tracks it).
 
-* the `game_url` input of a manual run (any direct link),
-* the files repository through a `FILES_TOKEN` secret (fine-grained PAT,
-  *Contents: read*) — what the private
-  [`Player124413/Files`](https://github.com/Player124413/Files) needs,
-* the files repository anonymously (it must then be public), trying the
-  configured ref, `main` and `master`.
+### Running it with your own link
 
-If none works, the lift job prints exactly what to add and the Windows job
-builds against [`ci/stub`](ci/stub) instead — one hand-written function, no
-game — so the host, the runtime, CMake and the MSVC path are still verified on
-every push, and the uploaded artifact is named `shrek2-win32-host-smoke`
-rather than `shrek2-win32`. A build from the real lift is never silently
-substituted.
+**Actions → Shrek 2 (Windows x86) → Run workflow** has a `game_url` box. Paste
+a link to a **zip** holding `System/game.exe` — or to `game.exe` itself — and
+run. That is the whole setup; nothing has to be made public and no secret is
+required.
+
+| what you paste | what happens |
+|---|---|
+| `https://huggingface.co/<user>/<repo>/blob/main/Shrek2.zip` | `blob/` is rewritten to `resolve/`; works for model and dataset repos; `HF_TOKEN` is used if the repo is private or gated |
+| `https://huggingface.co/datasets/<user>/<repo>/resolve/main/files/game.zip` | used as is |
+| `https://drive.google.com/file/d/<id>/view?usp=sharing` | rewritten to the `uc?export=download` request, and the *"file is too large to scan for viruses"* page is followed (its form, with cookies) to the real download. The file must be shared as *anyone with the link* |
+| any `https://…/file.zip` | downloaded; `Content-Length` is not trusted, the bytes are |
+| any `https://…/game.exe` | used directly |
+
+The archive is **not** unpacked wholesale: `tools/fetch_game.py` reads the zip
+index, prefers `*/System/game.exe` over a bare `game.exe` (an install archive
+also holds `game.ini`, `game.log`, …), and extracts only that member. A 785 MB
+upload therefore costs a 785 MB download and a 274 KB write.
+
+The script prints the size and SHA-256 and compares them with
+[`config/game.json`](config/game.json) — if you uploaded a different
+release/patch of the game it says so before the driver refuses it. It also runs
+`--selftest` (URL rewriting, Google Drive's interstitial, archive ranking) on
+every CI run, offline.
+
+To avoid retyping the link on every push, put it in a repository
+**variable** `SHREK2_GAME_URL` (Settings → Secrets and variables → Actions →
+Variables); the box overrides it when filled.
+
+If the `game_url` box is empty, the workflow falls back to the files repository:
+`FILES_TOKEN` secret first, then anonymous. If all of that fails, the lift job
+prints exactly what to add and the Windows job builds against
+[`ci/stub`](ci/stub) instead — one hand-written function, no game — so the host,
+the runtime, CMake and the MSVC path are still verified on every push, and the
+uploaded artifact is named `shrek2-win32-host-smoke` rather than
+`shrek2-win32`. A build from the real lift is never silently substituted.
 
 Locally the same two steps are:
 
@@ -264,6 +287,7 @@ indirect calls with their callers — the caller is usually the interesting one
 projects/shrek2/
   config/game.json          target identity: size, SHA-256, base, entry, exports
   tools/build_lift.py       the driver: verify → analyse → recover → lift → gate → report
+  tools/fetch_game.py       get game.exe from a zip link (HF / Google Drive / any URL)
   src/main.c                the host: native32, image mapping, binding, crash report
   src/game/recomp/gen/      generated C (not committed; built by the driver/CI)
   analysis/                 pe.json, imports.json, functions.json, report.md, manifest.json
