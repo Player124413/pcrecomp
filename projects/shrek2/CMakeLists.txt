@@ -31,8 +31,19 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
 endif()
 
 get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
-set(LIFT_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/src/game/recomp/gen")
 set(RUNTIME   "${REPO_ROOT}/runtime")
+
+# The real catalog is generated from your own game.exe and is never committed
+# (it is a derivative of the binary).  SHREK2_SYNTHETIC builds the host against
+# a one-function stand-in instead: no game needed, and it exercises exactly the
+# same main.c, native32, runtime, CMake and linker path.  CI uses it whenever it
+# could not fetch the game, so a build regression is still caught.
+option(SHREK2_SYNTHETIC "build against ci/stub instead of the generated lift" OFF)
+if(SHREK2_SYNTHETIC)
+    set(LIFT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ci/stub")
+else()
+    set(LIFT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/game/recomp/gen")
+endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -46,7 +57,8 @@ if(NOT EXISTS "${LIFT_DIR}/recomp_dispatch.c")
     message(FATAL_ERROR
         "No generated code in ${LIFT_DIR}.\n"
         "Generate it first:\n"
-        "  python3 projects/shrek2/tools/build_lift.py --game <install>/System/game.exe")
+        "  python3 projects/shrek2/tools/build_lift.py --game <install>/System/game.exe\n"
+        "(or configure with -DSHREK2_SYNTHETIC=ON to build the host without a lift)")
 endif()
 list(LENGTH LIFT_SOURCES LIFT_COUNT)
 message(STATUS "lift: ${LIFT_COUNT} generated source files")
@@ -127,3 +139,6 @@ if(Python3_FOUND)
 endif()
 
 message(STATUS "shrek2: hybrid lift, engine DLLs stay native (Core/Engine/KWGame)")
+if(SHREK2_SYNTHETIC)
+    message(WARNING "SHREK2_SYNTHETIC=ON: this executable contains a stub catalog, not the game")
+endif()

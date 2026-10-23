@@ -123,23 +123,56 @@ cmake --build build --config Release --parallel
 Quick path: [`build.bat`](build.bat) runs the same three steps with
 `SHREK2_GAME` pointing at the install.
 
+Without the game (contributing to `main.c`, or a toolchain check) configure with
+`-DSHREK2_SYNTHETIC=ON`: the host is built against [`ci/stub`](ci/stub), a
+one-function stand-in catalog, and the resulting exe answers `SHREK2_HELP` and
+the missing-install diagnostic exactly like the real one. It is what CI falls
+back to when it cannot fetch `game.exe`.
+
 ### CI
 
-`.github/workflows/shrek2-windows.yml` builds it on every push that touches
-this project:
+`.github/workflows/shrek2-windows.yml` runs on every push that touches the
+project:
 
-1. **lift** (ubuntu) — downloads the one file the lift needs
-   (`System/game.exe`, 274 KB, from the public files repository), runs the
-   driver, **runs it twice and diffs the output** (the lift is reproducible),
-   compiles the host for x86-windows with clang/mingw as an early gate, then
-   syntax-checks every generated translation unit with gcc.
-2. **windows** (windows-latest) — MSVC `-A Win32` Release build, uploads
-   `shrek2.exe` and `shrek2-win32.zip`.
+1. **lift** (ubuntu) — fetches the one file the lift is made from
+   (`System/game.exe`, 274 KB), runs the driver, **runs it twice and diffs the
+   output** (the lift is reproducible), compiles every generated translation
+   unit *and* the host for `x86-windows` with clang/mingw, and uploads the lift
+   as a 14-day artifact together with `analysis/report.md`.
+2. **windows** (windows-latest) — downloads that artifact, builds
+   `shrek2.exe` with MSVC `-A Win32`, **runs it twice** (`SHREK2_HELP=1` must
+   exit 0, an empty game folder must exit 2), and uploads `shrek2.exe` and
+   `shrek2-win32.zip`.
 3. On a GitHub release, the zip is attached to it.
 
-The game itself is never committed and never redistributed: the workflow
-fetches the binary, and the generated C is a build artifact. That is why the
-lift jobs exist at all rather than a checked-in `gen/` tree.
+The game is never committed and never redistributed — the workflow fetches the
+binary, and the generated C is a build artifact (the repo's
+[`tools/audit_repo.py`](../../tools/audit_repo.py) classifies lifted output as a
+derivative of the binary, so no public project here tracks it). Where the
+binary comes from, in order:
+
+* the `game_url` input of a manual run (any direct link),
+* the files repository through a `FILES_TOKEN` secret (fine-grained PAT,
+  *Contents: read*) — what the private
+  [`Player124413/Files`](https://github.com/Player124413/Files) needs,
+* the files repository anonymously (it must then be public), trying the
+  configured ref, `main` and `master`.
+
+If none works, the lift job prints exactly what to add and the Windows job
+builds against [`ci/stub`](ci/stub) instead — one hand-written function, no
+game — so the host, the runtime, CMake and the MSVC path are still verified on
+every push, and the uploaded artifact is named `shrek2-win32-host-smoke`
+rather than `shrek2-win32`. A build from the real lift is never silently
+substituted.
+
+Locally the same two steps are:
+
+```bat
+python -m pip install -r projects\shrek2\requirements.txt
+python projects\shrek2\tools\build_lift.py --game "C:\Games\Shrek 2\System\game.exe"
+cmake -S projects\shrek2 -B build -G "Visual Studio 17 2022" -A Win32
+cmake --build build --config Release --parallel
+```
 
 ## Running
 

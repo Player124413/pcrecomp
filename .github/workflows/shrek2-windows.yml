@@ -1,31 +1,37 @@
 name: Shrek 2 (Windows x86)
 
-# The lift is derived from the shipping game.exe, which is copyrighted and is
-# not in this repository.  The `lift` job therefore fetches the one file it
-# needs (System/game.exe, 274 KB) from the public files repository and
-# regenerates the C on every run.  The Windows job then builds the executable
-# from that artifact -- so what is tested is what the driver produces from the
-# real binary, not a stale copy checked in by hand.
+# The lift is derived from the shipping game.exe, which is copyrighted: it is
+# not in this repository, and neither is the generated C (the repo's own
+# `tools/audit_repo.py` treats lifted output as a derivative of the binary).
 #
-# The repository is overridable for a fork or a private mirror:
-#   workflow_dispatch -> files_repository / files_ref
+# So CI builds from the real thing, in two jobs:
+#
+#   lift     fetch System/game.exe, run the driver twice, prove the output is
+#            byte-identical, gate it, and upload it as an artifact.
+#   windows  download that artifact and build shrek2.exe with MSVC x86.
+#
+# Where the binary comes from, in order:
+#   1. the `game_url` input (a direct link: release asset, object store, ...)
+#   2. the files repository through a FILES_TOKEN secret (fine-grained PAT,
+#      Contents: read -- what a private repo needs)
+#   3. the files repository anonymously, refs: the input, `main`, `master`
+#
+# Without one of those the lift job stops with an actionable error, because
+# there is nothing to lift.
 
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       - "projects/shrek2/**"
       - "runtime/native32/**"
       - "runtime/recomp32/**"
       - "tools/**"
       - ".github/workflows/shrek2-windows.yml"
   pull_request:
-    paths:
-      - "projects/shrek2/**"
-      - "runtime/native32/**"
-      - "runtime/recomp32/**"
-      - "tools/**"
-      - ".github/workflows/shrek2-windows.yml"
+    paths: *paths
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       files_repository:
@@ -34,8 +40,9 @@ on:
       files_ref:
         description: "branch or tag in that repository"
         default: "main"
-  release:
-    types: [published]
+      game_url:
+        description: "direct URL to game.exe (overrides both of the above)"
+        default: ""
 
 concurrency:
   group: shrek2-${{ github.ref }}
@@ -44,6 +51,7 @@ concurrency:
 env:
   FILES_REPOSITORY: ${{ inputs.files_repository || 'Player124413/Files' }}
   FILES_REF: ${{ inputs.files_ref || 'main' }}
+  GAME_URL: ${{ inputs.game_url || '' }}
   LIFT_DIR: projects/shrek2/src/game/recomp/gen
 
 jobs:
@@ -53,14 +61,10 @@ jobs:
   lift:
     name: lift game.exe
     runs-on: ubuntu-latest
+    outputs:
+      have_game: ${{ steps.fetch.outputs.have_game }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The clone below is of a *different* repository.  checkout persists
-          # an auth header scoped to this repository's GITHUB_TOKEN; sending it
-          # to github.com/<someone-else>/... gets a 403 instead of falling back
-          # to anonymous read, even for a public repo.
-          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -68,33 +72,57 @@ jobs:
           cache: pip
           cache-dependency-path: projects/shrek2/requirements.txt
 
-      - name: Install the disassembler
-        run: pip install -r projects/shrek2/requirements.txt
+      - name: Install the toolchain
+        run: |
+          pip install -r projects/shrek2/requirements.txt
+          pip install ziglang          # clang + a 32-bit Windows sysroot
 
-      - name: Fetch the one file the lift is generated from
+      - name: Fetch System/game.exe
+        id: fetch
         env:
-          FILES_TOKEN: ${{ secrets.FILES_TOKEN }}   # empty for the public repo
+          FILES_TOKEN: ${{ secrets.FILES_TOKEN }}
         run: |
           set -euo pipefail
-          AUTH=()
-          if [ -n "${FILES_TOKEN:-}" ]; then
-            URL="https://api.github.com/repos/${FILES_REPOSITORY}/contents/System/game.exe?ref=${FILES_REF}"
-            AUTH=(-H "Authorization: Bearer ${FILES_TOKEN}" -H "Accept: application/vnd.github.raw")
-          else
-            URL="https://raw.githubusercontent.com/${FILES_REPOSITORY}/${FILES_REF}/System/game.exe"
+          GAME="${RUNNER_TEMP}/game.exe"
+          try() {  # try <what> <curl args...>
+            echo "::notice::fetching game.exe from $1"
+            curl -fsSL --retry 2 --retry-delay 2 -o "$GAME" "${@:2}" && return 0
+            rm -f "$GAME"
+            return 1
+          }
+          ok=0
+          if [ -n "${GAME_URL:-}" ]; then try "$GAME_URL" "$GAME_URL" && ok=1; fi
+          if [ "$ok" = 0 ] && [ -n "${FILES_TOKEN:-}" ]; then
+            try "api:${FILES_REPOSITORY}@${FILES_REF}" \
+                -H "Authorization: Bearer ${FILES_TOKEN}" \
+                -H "Accept: application/vnd.github.raw" \
+                "https://api.github.com/repos/${FILES_REPOSITORY}/contents/System/game.exe?ref=${FILES_REF}" && ok=1
           fi
-          curl -fL --retry 3 --retry-delay 2 -o "${RUNNER_TEMP}/game.exe" "${AUTH[@]}" "$URL"
-          ls -l "${RUNNER_TEMP}/game.exe"
-          sha256sum "${RUNNER_TEMP}/game.exe"   # the driver checks it against config/game.json
+          for ref in "${FILES_REF}" main master; do
+            if [ "$ok" = 0 ]; then
+              try "raw:${FILES_REPOSITORY}@${ref}" \
+                  "https://raw.githubusercontent.com/${FILES_REPOSITORY}/${ref}/System/game.exe" && ok=1
+            fi
+          done
+          if [ "$ok" = 0 ]; then
+            echo "have_game=0" >> "$GITHUB_OUTPUT"
+            echo "::warning::System/game.exe is not reachable, so there is nothing to lift. The Windows job will build the host against the stub catalog instead. To build the real thing, do any one of: make ${FILES_REPOSITORY} public; add a FILES_TOKEN secret (fine-grained PAT, Contents: read); or dispatch this workflow with game_url set to a direct link to game.exe."
+            exit 0
+          fi
+          echo "have_game=1" >> "$GITHUB_OUTPUT"
+          ls -l "$GAME"
+          sha256sum "$GAME"      # the driver verifies this against config/game.json
 
       - name: Lift (run 1)
+        if: steps.fetch.outputs.have_game == '1'
         run: |
           python3 projects/shrek2/tools/build_lift.py \
             --game "${RUNNER_TEMP}/game.exe" \
             --out "${LIFT_DIR}" \
             --analysis projects/shrek2/analysis | tee lift.log
 
-      - name: Lift (run 2) and compare -- the lift must be reproducible
+      - name: Lift (run 2), and compare -- the lift must be reproducible
+        if: steps.fetch.outputs.have_game == '1'
         run: |
           set -euo pipefail
           python3 projects/shrek2/tools/build_lift.py \
@@ -104,43 +132,56 @@ jobs:
           diff -r "${LIFT_DIR}" "${RUNNER_TEMP}/lift2"
           echo "the two runs produced byte-identical C"
 
-      - name: Host gate (an independent compiler's opinion, before MSVC)
+      - name: Compile the generated C for x86-windows
+        if: steps.fetch.outputs.have_game == '1'
         run: |
           set -euo pipefail
-          # Zig ships a full 32-bit Windows (mingw) toolchain; compiling main.c
-          # against real Windows headers catches host bugs in a minute instead
-          # of after the MSVC job has built 14.5 MB of generated C.
-          pip install -q ziglang
           ZIG=$(python3 -c "import ziglang,os;print(os.path.dirname(ziglang.__file__))")/zig
-          "$ZIG" cc -target x86-windows-gnu -std=gnu11 -c -w \
-            -I runtime/recomp32 -I runtime/native32 -I "${LIFT_DIR}" \
-            -o /tmp/host.o projects/shrek2/src/main.c
-          echo "host compiles for x86-windows"
+          for f in "${LIFT_DIR}"/recomp_*.c "${LIFT_DIR}"/recomp_dispatch.c; do
+            "$ZIG" cc -target x86-windows-gnu -std=gnu11 -O1 -c "$f" \
+              -I runtime/recomp32 -o /dev/null
+          done
+          echo "all generated translation units compile for 32-bit Windows"
+
+      - name: Compile the host for x86-windows
+        if: steps.fetch.outputs.have_game == '1'
+        run: |
+          ZIG=$(python3 -c "import ziglang,os;print(os.path.dirname(ziglang.__file__))")/zig
+          "$ZIG" cc -target x86-windows-gnu -std=gnu11 -O1 -c \
+            projects/shrek2/src/main.c \
+            -I runtime/recomp32 -I runtime/native32 -I "${LIFT_DIR}" -o /dev/null
 
       - name: Ship the report with the generated code
+        if: steps.fetch.outputs.have_game == '1'
         run: cp projects/shrek2/analysis/report.md "${LIFT_DIR}/lift-report.md"
 
-      - name: Compile gate (syntax, before paying for an MSVC build)
+      - name: Summary
+        if: steps.fetch.outputs.have_game == '1'
         run: |
-          set -euo pipefail
-          for f in "${LIFT_DIR}"/recomp_*.c "${LIFT_DIR}"/recomp_dispatch.c; do
-            gcc -fsyntax-only -w -I runtime/recomp32 "$f"
-          done
-          echo "all generated translation units parse"
+          {
+            echo "### Shrek 2 lift"
+            echo
+            sed -n '1,40p' lift.log
+            echo
+            echo '```'
+            cat projects/shrek2/analysis/report.md
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the lift
+        if: steps.fetch.outputs.have_game == '1'
         uses: actions/upload-artifact@v4
         with:
           # One directory, so the artifact's root *is* the gen dir and the
           # Windows job can download it straight into place.  The report rides
-          # along inside it.
+          # along inside it.  Artifacts are not git history: they expire.
           name: shrek2-lift
           path: ${{ env.LIFT_DIR }}
           if-no-files-found: error
           retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # 2. Build the Windows executable with MSVC, x86.
+  # 2. Build the executable with MSVC, x86.
   # ---------------------------------------------------------------------------
   windows:
     name: build shrek2.exe (Win32)
@@ -151,20 +192,54 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
 
       - name: Fetch the generated lift
+        id: lift
         uses: actions/download-artifact@v4
+        continue-on-error: true          # absent when the game was not reachable
         with:
           name: shrek2-lift
           path: ${{ env.LIFT_DIR }}
 
+      - name: Which catalog?
+        id: catalog
+        shell: pwsh
+        run: |
+          if (Test-Path "${{ env.LIFT_DIR }}/recomp_dispatch.c") {
+            "mode=real"   >> $env:GITHUB_OUTPUT
+            "have=yes"    >> $env:GITHUB_OUTPUT
+            Write-Host "building the lift generated from the real game.exe"
+          } else {
+            "mode=stub"   >> $env:GITHUB_OUTPUT
+            "have=no"     >> $env:GITHUB_OUTPUT
+            Write-Host "::warning::No lift artifact in this run (the game binary was not reachable). Building against the stub catalog, so the host, the runtime and the MSVC path are still verified."
+          }
+
       - name: Configure (Visual Studio 2022, x86)
-        run: cmake -S projects/shrek2 -B build -G "Visual Studio 17 2022" -A Win32
+        shell: pwsh
+        run: |
+          $synthetic = if ("${{ steps.catalog.outputs.mode }}" -eq "stub") { "ON" } else { "OFF" }
+          cmake -S projects/shrek2 -B build -G "Visual Studio 17 2022" -A Win32 -DSHREK2_SYNTHETIC=$synthetic
 
       - name: Build Release
         run: cmake --build build --config Release --parallel
+
+      - name: The executable starts, and says what it needs
+        shell: pwsh
+        run: |
+          $exe = "build/Release/shrek2.exe"
+          $env:SHREK2_HELP = "1"
+          $p = Start-Process -FilePath $exe -NoNewWindow -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "SHREK2_HELP should exit 0, got $($p.ExitCode)" }
+          Remove-Item Env:SHREK2_HELP
+
+          $empty = Join-Path $env:RUNNER_TEMP "no-game-here"
+          New-Item -ItemType Directory -Force $empty | Out-Null
+          $env:SHREK2_DIR = $empty
+          $p = Start-Process -FilePath $exe -NoNewWindow -Wait -PassThru
+          if ($p.ExitCode -ne 2) { throw "an empty game dir should exit 2, got $($p.ExitCode)" }
+          Remove-Item Env:SHREK2_DIR
+          Write-Host "host smoke test passed (help -> 0, missing install -> 2)"
 
       - name: Package
         shell: pwsh
@@ -172,16 +247,18 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item build/Release/shrek2.exe dist/
           Copy-Item projects/shrek2/README.md dist/README.md
-          if (Test-Path "${{ env.LIFT_DIR }}/recomp_target.h") {
-            Copy-Item "${{ env.LIFT_DIR }}/recomp_target.h" dist/recomp_target.h
-          }
+          Copy-Item "${{ env.LIFT_DIR }}/recomp_target.h" dist/
+          @"
+          This build was configured with SHREK2_SYNTHETIC=${{ steps.catalog.outputs.mode == 'stub' && 'ON' || 'OFF' }}.
+          See README.md; a stub build contains one function, not the game.
+          "@ | Set-Content dist/BUILD.txt
           Compress-Archive -Path dist/* -DestinationPath shrek2-win32.zip -Force
           Get-Item dist/shrek2.exe, shrek2-win32.zip | Format-Table Name, Length
 
       - name: Upload the executable
         uses: actions/upload-artifact@v4
         with:
-          name: shrek2-win32
+          name: ${{ steps.catalog.outputs.mode == 'stub' && 'shrek2-win32-host-smoke' || 'shrek2-win32' }}
           path: |
             dist/shrek2.exe
             shrek2-win32.zip
@@ -189,7 +266,7 @@ jobs:
           retention-days: 30
 
       - name: Attach to the release
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' && steps.catalog.outputs.mode == 'real'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
