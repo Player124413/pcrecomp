@@ -462,6 +462,22 @@ def git_head():
 
 # --------------------------------------------------------------------------
 
+def looks_like_pe(path):
+    """Cheap structural check, so a truncated or renamed file fails with a
+    sentence instead of a traceback from inside the PE reader."""
+    import struct
+    try:
+        with open(path, "rb") as f:
+            head = f.read(0x40)
+            if len(head) < 0x40 or head[:2] != b"MZ":
+                return False
+            off = struct.unpack_from("<I", head, 0x3C)[0]
+            f.seek(off)
+            return f.read(4) == b"PE\0\0"
+    except OSError:
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -484,10 +500,18 @@ def main():
     if not os.path.exists(args.game):
         sys.exit(f"no such file: {args.game}")
 
+    if not looks_like_pe(args.game):
+        sys.exit(f"[0] FAIL: {args.game} is not a complete 32-bit PE image.\n"
+                 "    (a truncated download is the usual cause; the driver needs\n"
+                 "    the whole file, headers and all)")
+
     digest = phase_verify(args.game, cfg, args.any_game)
     with open(args.game, "rb") as f:
         pe_data = f.read()
-    info, imports, by_dll = phase_analyse(args.game, args.analysis)
+    try:
+        info, imports, by_dll = phase_analyse(args.game, args.analysis)
+    except Exception as e:                                   # noqa: BLE001
+        sys.exit(f"[1] FAIL: cannot read the PE (a truncated download is the usual cause): {e}")
 
     if info.image_base != cfg["image_base"]:
         sys.exit(f"[1] FAIL: image base 0x{info.image_base:08X} != config "
@@ -498,9 +522,12 @@ def main():
         s_ = read_seed_file(sf)
         print(f"[2] {len(s_)} seeds from {sf}")
         extra |= s_
-    _dis, iat, functions, _vt = phase_discover(args.game, pe_data, info,
-                                               extra_seeds=extra,
-                                               no_recover=args.no_recover)
+    try:
+        _dis, iat, functions, _vt = phase_discover(args.game, pe_data, info,
+                                                   extra_seeds=extra,
+                                                   no_recover=args.no_recover)
+    except Exception as e:                                   # noqa: BLE001
+        sys.exit(f"[2] FAIL: function discovery failed: {e}")
     cov = coverage_report(pe_data, info, functions)
     runs = unrecovered_runs(pe_data, info, functions)
     funcs, written = phase_lift(functions, iat, args.out, args.split,

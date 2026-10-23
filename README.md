@@ -623,8 +623,10 @@ pip install capstone pefile lief unicorn cryptography
 way this document says to build one: a driver with gates
 (`tools/build_lift.py`: verify -> analyse -> recover -> lift -> gate -> report),
 the analysis artifacts committed, the generated C kept out of git, a Windows x86
-host, and a CI workflow that re-derives the lift from the shipping binary on
-every run and builds the executable from it.
+host, and a CI workflow that re-derives the lift from the shipping binary and
+builds the executable with MSVC x86 on every run -- falling back to a stub
+catalog when the (copyrighted) binary is not reachable, so the host and the
+toolchain are still exercised instead of the pipeline going red.
 
 It is also the counter-example to "lift everything": the 2004 UE2 engine
 (`Core.dll`, `Engine.dll`, 6 MB of optimised C++) stays real machine code, and
