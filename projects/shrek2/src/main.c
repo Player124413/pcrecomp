@@ -62,6 +62,7 @@
 
 #include "recomp_types.h"
 #include "native32.h"
+#include "recomp_trace.h"     /* recomp_trace_arg / recomp_trace_flush */
 #include "recomp_target.h"
 
 #ifndef RECOMP_IMAGE_BASE
@@ -170,6 +171,9 @@ static LONG WINAPI host_veh(EXCEPTION_POINTERS *ep)
         er->ExceptionCode == EXCEPTION_PRIV_INSTRUCTION ||
         er->ExceptionCode == EXCEPTION_INT_DIVIDE_BY_ZERO) {
         const char *fn = native32_name(g_cur_func);
+        /* The trace is buffered (4 MB) because unbuffered it costs more than
+         * the code it traces; a fault is the one place it must be flushed. */
+        recomp_trace_flush();
         fprintf(stderr, "\n================ recompiled game crashed ================\n");
         fprintf(stderr, "  exception   : 0x%08lX at %p\n",
                 (unsigned long)er->ExceptionCode, (void *)(uintptr_t)pc);
@@ -194,6 +198,71 @@ static LONG WINAPI host_veh(EXCEPTION_POINTERS *ep)
         fprintf(stderr, "==========================================================\n");
     }
     return EXCEPTION_CONTINUE_SEARCH;
+}
+
+/* ------------------------------------------------------------------ */
+/* Bring-up diagnostics                                                */
+/* ------------------------------------------------------------------ */
+
+/* recomp_trace.c (runtime/recomp32) has the diagnostics that pay for
+ * themselves when a lift stops 30,000 calls deep -- a call trace with no ring
+ * limit, "first entry to each function in a range", an argument trace on one
+ * dispatcher, a watch on one VA.  Its options are argv-shaped, and this host
+ * cannot use argv: the guest's CRT parses the real command line, so an option
+ * typed here would also be visible to the game.
+ *
+ * So the same options are spelled as environment variables and fed to the
+ * runtime's own parser, which keeps one grammar (and one --help) in the
+ * toolkit rather than a copy here:
+ *
+ *   SHREK2_CALLTRACE=<file>        --calltrace <file>
+ *   SHREK2_FIRSTHIT=<lo>-<hi>      --firsthit <lo> <hi>
+ *   SHREK2_ARGTRACE=<va>[,<va>..]  --argtrace <va>   (repeatable)
+ *   SHREK2_WATCH=<va>[,<va>..]     --watch <va>      (repeatable)
+ *   SHREK2_POISON=<addr>[:<val>]   --poison <addr> [--poisonval <val>]
+ *
+ * Without -DRECOMP_TRACE (cmake -DSHREK2_TRACE=ON) the runtime answers each
+ * option with a one-line "needs a build with -DRECOMP_TRACE" and carries on,
+ * which is the right failure for a diagnostic.
+ */
+static void trace_from_env(void)
+{
+    char buf[512];
+    const char *v;
+
+    if ((v = getenv("SHREK2_CALLTRACE")) && *v) {
+        char *argv_[] = { (char *)"--calltrace", (char *)v };
+        recomp_trace_arg(2, argv_, 0);
+    }
+    if ((v = getenv("SHREK2_FIRSTHIT")) && *v) {
+        char *argv_[3] = { (char *)"--firsthit", buf, NULL };
+        snprintf(buf, sizeof buf, "%s", v);
+        char *dash = strchr(buf, '-');
+        if (dash) { *dash = 0; argv_[2] = dash + 1;
+                    recomp_trace_arg(3, argv_, 0); }
+        else fprintf(stderr, "[host] SHREK2_FIRSTHIT wants LO-HI, got \"%s\"\n", v);
+    }
+    if ((v = getenv("SHREK2_ARGTRACE")) && *v) {
+        snprintf(buf, sizeof buf, "%s", v);
+        for (char *p = strtok(buf, ", "); p; p = strtok(NULL, ", "))
+            { char *argv_[2] = { (char *)"--argtrace", p };
+              recomp_trace_arg(2, argv_, 0); }
+    }
+    if ((v = getenv("SHREK2_WATCH")) && *v) {
+        snprintf(buf, sizeof buf, "%s", v);
+        for (char *p = strtok(buf, ", "); p; p = strtok(NULL, ", "))
+            { char *argv_[2] = { (char *)"--watch", p };
+              recomp_trace_arg(2, argv_, 0); }
+    }
+    if ((v = getenv("SHREK2_POISON")) && *v) {
+        snprintf(buf, sizeof buf, "%s", v);
+        char *colon = strchr(buf, ':');
+        if (colon) *colon = 0;
+        { char *argv_[2] = { (char *)"--poison", buf };
+          recomp_trace_arg(2, argv_, 0); }
+        if (colon) { char *argv_[2] = { (char *)"--poisonval", colon + 1 };
+                     recomp_trace_arg(2, argv_, 0); }
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -223,6 +292,13 @@ static void usage(void)
         "  SHREK2_TRACE_CALLBACKS=1   log real -> lifted calls\n"
         "  SHREK2_NO_HOLD=1           do not reserve the image range by relaunching\n"
         "  SHREK2_LOG=1               write the log to shrek2.log\n"
+        "\n"
+        "  Bring-up traces (need a build with -DSHREK2_TRACE=ON):\n"
+        "  SHREK2_CALLTRACE=<file>    every lifted entry, thread-tagged, unbounded\n"
+        "  SHREK2_FIRSTHIT=<lo>-<hi>  first entry to each function in the range\n"
+        "  SHREK2_ARGTRACE=<va>,..    one line per entry to VA, with 3 arguments\n"
+        "  SHREK2_WATCH=<va>,..       registers, arguments and the object at ecx\n"
+        "  SHREK2_POISON=<addr>[:<v>] report every change of one target dword\n"
         "  SHREK2_HELP=1              print this and exit\n"
         "\n"
         "Build: cmake -S projects/shrek2 -B build -A Win32 && cmake --build build --config Release\n");
@@ -305,6 +381,7 @@ static int shrek2_run(void)
 
     if (getenv("SHREK2_TRACE"))           native32_trace_native = 1;
     if (getenv("SHREK2_TRACE_CALLBACKS")) native32_trace_callbacks = 1;
+    trace_from_env();
 
     int missing = native32_bind(RECOMP_IMAGE_BASE, NULL, 0);
     if (missing) {

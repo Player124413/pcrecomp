@@ -27,11 +27,18 @@ python -m pip install -q -r projects\shrek2\requirements.txt || exit /b 3
 echo [build] 2/3 lifting %SHREK2_GAME%
 python projects\shrek2\tools\build_lift.py --game "%SHREK2_GAME%" || exit /b 4
 
-echo [build] 3/3 configuring and building Win32
-cmake -S projects\shrek2 -B projects\shrek2\build -G "Visual Studio 17 2022" -A Win32 || exit /b 5
+rem SHREK2_TRACE=ON builds the lift with RECOMP_TRACE: one call per lifted
+rem function, and the SHREK2_CALLTRACE / _FIRSTHIT / _ARGTRACE knobs work.
+rem Slower, so keep it out of a build you intend to play.
+if "%SHREK2_TRACE%"=="" set "SHREK2_TRACE=OFF"
+
+echo [build] 3/3 configuring and building Win32 (SHREK2_TRACE=%SHREK2_TRACE%)
+cmake -S projects\shrek2 -B projects\shrek2\build -A Win32 -DSHREK2_TRACE=%SHREK2_TRACE% || exit /b 5
 cmake --build projects\shrek2\build --config Release --parallel || exit /b 6
 
 echo.
 echo [build] done: projects\shrek2\build\Release\shrek2.exe
-echo [build] copy it into the game's System folder and run it instead of game.exe.
+echo [build] next: copy it into the game's System folder, then follow
+echo [build]       projects\shrek2\BRINGUP.md
+echo [build] (it replaces game.exe in System\; the original stays in place).
 endlocal

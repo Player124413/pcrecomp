@@ -631,7 +631,10 @@ toolchain are still exercised instead of the pipeline going red.
 It is also the counter-example to "lift everything": the 2004 UE2 engine
 (`Core.dll`, `Engine.dll`, 6 MB of optimised C++) stays real machine code, and
 only the application body -- 1,644 functions, 14.5 MB of generated C -- is
-lifted. Read its [README](projects/shrek2/README.md) next to this section.
+lifted. Read its [README](projects/shrek2/README.md) next to this section, and
+[`BRINGUP.md`](projects/shrek2/BRINGUP.md) for what running a fresh hybrid lift
+actually costs -- the seven checks in order, and the five failures this kind of
+lift has.
 
 ### Where the docs are
 

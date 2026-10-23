@@ -238,10 +238,24 @@ game's `argv`:
 | `SHREK2_NO_HOLD=1` | do not reserve the image range by relaunching (debugger use) |
 | `SHREK2_LOG=1` | write the log to `shrek2.log` |
 | `SHREK2_HELP=1` | print the switches and exit |
+| `SHREK2_CALLTRACE=<file>` | every lifted entry, thread-tagged, unbounded (needs `-DSHREK2_TRACE=ON`) |
+| `SHREK2_FIRSTHIT=<lo>-<hi>` | first entry to each function in the range |
+| `SHREK2_ARGTRACE=<va>,…` | one line per entry to VA, with three arguments |
+| `SHREK2_WATCH=<va>,…` | registers, arguments and the object at `ecx` |
+| `SHREK2_POISON=<addr>[:<val>]` | report every change of one target dword |
 
 Exit codes: `0` WinMain returned, `2` incomplete install or wrong image, `3`
 the image could not be mapped (or the entry point is not in the catalog), `4`
 binding left imports unresolved.
+
+## Getting it to run
+
+The lift is built and gated but has **never been executed**: it needs Windows,
+the install and a GPU. [`BRINGUP.md`](BRINGUP.md) is the ladder from "it links"
+to "it plays" — the seven checks in order, what each log line means, the
+environment knobs for each (`SHREK2_CALLTRACE`, `SHREK2_FIRSTHIT`,
+`SHREK2_ARGTRACE`, `SHREK2_WATCH`, `SHREK2_POISON`), and the five failures this
+kind of lift actually has.
 
 ## What is verified, and what is not
 

@@ -39,6 +39,13 @@ set(RUNTIME   "${REPO_ROOT}/runtime")
 # same main.c, native32, runtime, CMake and linker path.  CI uses it whenever it
 # could not fetch the game, so a build regression is still caught.
 option(SHREK2_SYNTHETIC "build against ci/stub instead of the generated lift" OFF)
+
+# Every lifted function re-enters the runtime's trace hook (runtime/recomp32/
+# recomp_trace.c): an entry ring, --calltrace, --firsthit, --argtrace, --watch.
+# Costs a call and a few stores per function, so it is off in Release -- but a
+# bring-up run may well want the *optimised* build traced, hence a knob rather
+# than a debug-config-only define.
+option(SHREK2_TRACE "compile the lift with RECOMP_TRACE (function-entry tracing)" OFF)
 if(SHREK2_SYNTHETIC)
     set(LIFT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ci/stub")
 else()
@@ -85,6 +92,10 @@ target_compile_definitions(shrek2 PRIVATE
     _CRT_SECURE_NO_WARNINGS
     WIN32_LEAN_AND_MEAN
 )
+if(SHREK2_TRACE)
+    target_compile_definitions(shrek2 PRIVATE RECOMP_TRACE)
+    message(STATUS "shrek2: RECOMP_TRACE is on -- the lift is instrumented")
+endif()
 
 target_link_libraries(shrek2 PRIVATE
     kernel32 user32 gdi32 advapi32 shell32 ole32 oleaut32 winmm version comdlg32
