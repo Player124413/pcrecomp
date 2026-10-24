@@ -248,6 +248,15 @@ Exit codes: `0` WinMain returned, `2` incomplete install or wrong image, `3`
 the image could not be mapped (or the entry point is not in the catalog), `4`
 binding left imports unresolved.
 
+## Other platforms
+
+Android / ARM is possible and the plan is written down, but the deciding fact is
+that the *hybrid* design does not survive the move: the engine DLLs are real x86
+code and cannot be called from an ARM process, so everything must be lifted, and
+`win32hle` has no Direct3D 8. [`ANDROID.md`](ANDROID.md) sizes it (≈115k
+functions, ≈1 GB of C) and gives the four-stage ladder with a check at each
+step. For playing on a phone today, the emulation route needs nothing from us.
+
 ## Getting it to run
 
 The lift is built and gated but has **never been executed**: it needs Windows,

@@ -634,7 +634,8 @@ only the application body -- 1,644 functions, 14.5 MB of generated C -- is
 lifted. Read its [README](projects/shrek2/README.md) next to this section, and
 [`BRINGUP.md`](projects/shrek2/BRINGUP.md) for what running a fresh hybrid lift
 actually costs -- the seven checks in order, and the five failures this kind of
-lift has.
+lift has -- and [`ANDROID.md`](projects/shrek2/ANDROID.md) for what a non-Windows
+host (Android/ARM) actually requires: the lift is portable C, the engine is not.
 
 ### Where the docs are
 
