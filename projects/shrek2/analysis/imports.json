@@ -1,0 +1,2630 @@
+[
+ {
+  "dll": "comdlg32.dll",
+  "name": "GetSaveFileNameA",
+  "ordinal": null,
+  "iat_va": 278260320
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FArchive@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258436
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FArray@@IAE@HH@Z",
+  "ordinal": null,
+  "iat_va": 278258216
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FArray@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278257980
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FExec@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258568
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FFeedbackContext@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258008
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FFileManager@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278257988
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FMalloc@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258140
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FName@@QAE@PBGW4EFindName@@@Z",
+  "ordinal": null,
+  "iat_va": 278258356
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FName@@QAE@W4EName@@@Z",
+  "ordinal": null,
+  "iat_va": 278258332
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FName@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258376
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FNotifyHook@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258564
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FOutputDevice@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258128
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FOutputDeviceError@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258064
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FString@@QAE@ABV0@@Z",
+  "ordinal": null,
+  "iat_va": 278258268
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FString@@QAE@PBD@Z",
+  "ordinal": null,
+  "iat_va": 278258532
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FString@@QAE@PBG@Z",
+  "ordinal": null,
+  "iat_va": 278257952
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??0FString@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258504
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??1FArchive@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258440
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??1FArray@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258396
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??1FString@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278258500
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??4FString@@QAEAAV0@ABV0@@Z",
+  "ordinal": null,
+  "iat_va": 278257924
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??4FString@@QAEAAV0@PBG@Z",
+  "ordinal": null,
+  "iat_va": 278257932
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??6FArchive@@UAEAAV0@AAPAVUObject@@@Z",
+  "ordinal": null,
+  "iat_va": 278258460
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??6FArchive@@UAEAAV0@AAVFName@@@Z",
+  "ordinal": null,
+  "iat_va": 278258464
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??8FString@@QBEHABV0@@Z",
+  "ordinal": null,
+  "iat_va": 278258196
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??8FString@@QBEHPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258200
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??9FString@@QBEHABV0@@Z",
+  "ordinal": null,
+  "iat_va": 278258528
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??DFName@@QBEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278258388
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??DFString@@QBE?AV0@ABV0@@Z",
+  "ordinal": null,
+  "iat_va": 278258236
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??DFString@@QBE?AV0@PBG@Z",
+  "ordinal": null,
+  "iat_va": 278258232
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??DFString@@QBEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278258512
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??HFString@@QAE?AV0@ABV0@@Z",
+  "ordinal": null,
+  "iat_va": 278258412
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??HFString@@QAE?AV0@PBG@Z",
+  "ordinal": null,
+  "iat_va": 278257956
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??YFString@@QAEAAV0@ABV0@@Z",
+  "ordinal": null,
+  "iat_va": 278258272
+ },
+ {
+  "dll": "Core.dll",
+  "name": "??YFString@@QAEAAV0@PBG@Z",
+  "ordinal": null,
+  "iat_va": 278257948
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Add@FArray@@QAEHHH@Z",
+  "ordinal": null,
+  "iat_va": 278257984
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?AtEnd@FArchive@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278257892
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?AtStopper@FArchive@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278257896
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?AttachLazyLoader@FArchive@@UAEXPAVFLazyLoader@@@Z",
+  "ordinal": null,
+  "iat_va": 278257904
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?CalcHomeDir@FFileManager@@UAEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278257996
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?CountBytes@FArchive@@UAEXKK@Z",
+  "ordinal": null,
+  "iat_va": 278258456
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?DetachLazyLoader@FArchive@@UAEXPAVFLazyLoader@@@Z",
+  "ordinal": null,
+  "iat_va": 278257908
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Empty@FArray@@QAEXHH@Z",
+  "ordinal": null,
+  "iat_va": 278258228
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?ExportToOutputDevice@UExporter@@SAXPAVUObject@@PAV1@AAVFOutputDevice@@PBGH@Z",
+  "ordinal": null,
+  "iat_va": 278258364
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Flush@FArchive@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278257912
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Flush@FOutputDevice@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278258068
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GBuildLabel@@3PAGA",
+  "ordinal": null,
+  "iat_va": 278258264
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GCRCTable@@3PAKA",
+  "ordinal": null,
+  "iat_va": 278258520
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GConfig@@3PAVFConfigCache@@A",
+  "ordinal": null,
+  "iat_va": 278258536
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GError@@3PAVFOutputDeviceError@@A",
+  "ordinal": null,
+  "iat_va": 278257968
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GErrorHist@@3PAGA",
+  "ordinal": null,
+  "iat_va": 278258040
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GExec@@3PAVFExec@@A",
+  "ordinal": null,
+  "iat_va": 278258320
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GFileManager@@3PAVFFileManager@@A",
+  "ordinal": null,
+  "iat_va": 278258104
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIni@@3PAGA",
+  "ordinal": null,
+  "iat_va": 278258420
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsBenchmarking@@3HA",
+  "ordinal": null,
+  "iat_va": 278258308
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsClient@@3HA",
+  "ordinal": null,
+  "iat_va": 278258012
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsCriticalError@@3HA",
+  "ordinal": null,
+  "iat_va": 278258072
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsEditor@@3HA",
+  "ordinal": null,
+  "iat_va": 278258016
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsGuarded@@3HA",
+  "ordinal": null,
+  "iat_va": 278258052
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsRequestingExit@@3HA",
+  "ordinal": null,
+  "iat_va": 278258572
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsRunning@@3HA",
+  "ordinal": null,
+  "iat_va": 278258576
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsScriptable@@3HA",
+  "ordinal": null,
+  "iat_va": 278258156
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsServer@@3HA",
+  "ordinal": null,
+  "iat_va": 278258152
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsSlowTask@@3HA",
+  "ordinal": null,
+  "iat_va": 278258000
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GIsStarted@@3HA",
+  "ordinal": null,
+  "iat_va": 278258020
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GLazyLoad@@3HA",
+  "ordinal": null,
+  "iat_va": 278258160
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GLog@@3PAVFOutputDevice@@A",
+  "ordinal": null,
+  "iat_va": 278258028
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GLogHook@@3PAVFOutputDevice@@A",
+  "ordinal": null,
+  "iat_va": 278258116
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GMachineCPU@@3PAGA",
+  "ordinal": null,
+  "iat_va": 278258256
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GMachineOS@@3PAGA",
+  "ordinal": null,
+  "iat_va": 278258260
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GMachineVideo@@3PAGA",
+  "ordinal": null,
+  "iat_va": 278258252
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GMalloc@@3PAVFMalloc@@A",
+  "ordinal": null,
+  "iat_va": 278258524
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GNull@@3PAVFOutputDevice@@A",
+  "ordinal": null,
+  "iat_va": 278258100
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GObjObjects@UObject@@0V?$TArray@PAVUObject@@@@A",
+  "ordinal": null,
+  "iat_va": 278258136
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GPageSize@@3KA",
+  "ordinal": null,
+  "iat_va": 278258132
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GScriptCycles@@3HA",
+  "ordinal": null,
+  "iat_va": 278258300
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GSecondsPerCycle@@3NA",
+  "ordinal": null,
+  "iat_va": 278258496
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GUnicode@@3HA",
+  "ordinal": null,
+  "iat_va": 278258164
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GUnicodeOS@@3HA",
+  "ordinal": null,
+  "iat_va": 278258472
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GUserIni@@3PAGA",
+  "ordinal": null,
+  "iat_va": 278258184
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GWindowManager@@3PAVUSubsystem@@A",
+  "ordinal": null,
+  "iat_va": 278258292
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GetDefaultActor@UClass@@QAEPAVAActor@@XZ",
+  "ordinal": null,
+  "iat_va": 278258352
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GetDefaultObject@UClass@@QAEPAVUObject@@XZ",
+  "ordinal": null,
+  "iat_va": 278258372
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GetError@FArchive@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278257916
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GetName@UObject@@QBEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278258384
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GetOuter@UObject@@QBEPAV1@XZ",
+  "ordinal": null,
+  "iat_va": 278258316
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GetPathName@UObject@@QBEPBGPAV1@PAG@Z",
+  "ordinal": null,
+  "iat_va": 278258240
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?GetTransientPackage@UObject@@SAPAVUPackage@@XZ",
+  "ordinal": null,
+  "iat_va": 278257964
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Init@FFileManager@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278257992
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?IsA@UObject@@QBEHPAVUClass@@@Z",
+  "ordinal": null,
+  "iat_va": 278257884
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?IsChildOf@UStruct@@QBEHPBV1@@Z",
+  "ordinal": null,
+  "iat_va": 278257960
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?IsError@FArchive@@QAEHXZ",
+  "ordinal": null,
+  "iat_va": 278257928
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?LeftChop@FString@@QBE?AV1@H@Z",
+  "ordinal": null,
+  "iat_va": 278258244
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Localize@@YAPBGPBG000H@Z",
+  "ordinal": null,
+  "iat_va": 278258508
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?LocalizeError@@YAPBGPBDPBG1@Z",
+  "ordinal": null,
+  "iat_va": 278258056
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?LocalizeError@@YAPBGPBG00@Z",
+  "ordinal": null,
+  "iat_va": 278258024
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?LocalizeGeneral@@YAPBGPBDPBG1@Z",
+  "ordinal": null,
+  "iat_va": 278258392
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?LocalizeGeneral@@YAPBGPBG00@Z",
+  "ordinal": null,
+  "iat_va": 278258176
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Log@FOutputDevice@@QAEXPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258204
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Log@FOutputDevice@@QAEXW4EName@@PBG@Z",
+  "ordinal": null,
+  "iat_va": 278258180
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Logf@FOutputDevice@@QAAXPBGZZ",
+  "ordinal": null,
+  "iat_va": 278257944
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Logf@FOutputDevice@@QAAXW4EName@@PBGZZ",
+  "ordinal": null,
+  "iat_va": 278258124
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?MapName@FArchive@@UAEHPAVFName@@@Z",
+  "ordinal": null,
+  "iat_va": 278258580
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?MapObject@FArchive@@UAEHPAVUObject@@@Z",
+  "ordinal": null,
+  "iat_va": 278257888
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?NotifyExec@FNotifyHook@@UAEXPAXPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258552
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?NotifyPostChange@FNotifyHook@@UAEXPAX@Z",
+  "ordinal": null,
+  "iat_va": 278258556
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?NotifyPreChange@FNotifyHook@@UAEXPAX@Z",
+  "ordinal": null,
+  "iat_va": 278258560
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Parse@@YAHPBG0AAH@Z",
+  "ordinal": null,
+  "iat_va": 278258304
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Parse@@YAHPBG0AAM@Z",
+  "ordinal": null,
+  "iat_va": 278258276
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Parse@@YAHPBG0AAVFName@@@Z",
+  "ordinal": null,
+  "iat_va": 278258380
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Parse@@YAHPBG0AAVFString@@@Z",
+  "ordinal": null,
+  "iat_va": 278258328
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Parse@@YAHPBG0PAGH@Z",
+  "ordinal": null,
+  "iat_va": 278258088
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?ParseCommand@@YAHPAPBGPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258340
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?ParseObject@@YAHPBG0PAVUClass@@AAPAVUObject@@PAV2@@Z",
+  "ordinal": null,
+  "iat_va": 278258348
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?ParseParam@@YAHPBG0@Z",
+  "ordinal": null,
+  "iat_va": 278257936
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Precache@FArchive@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278258432
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Preload@FArchive@@UAEXPAVUObject@@@Z",
+  "ordinal": null,
+  "iat_va": 278258452
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Printf@FString@@SA?AV1@PBGZZ",
+  "ordinal": null,
+  "iat_va": 278258324
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?Remove@FArray@@QAEXHHH@Z",
+  "ordinal": null,
+  "iat_va": 278258404
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?SafeString@FName@@SAPBGW4EName@@@Z",
+  "ordinal": null,
+  "iat_va": 278258108
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?SafeSuppressed@FName@@SAHW4EName@@@Z",
+  "ordinal": null,
+  "iat_va": 278258076
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?SerializeBits@FArchive@@UAEXPAXH@Z",
+  "ordinal": null,
+  "iat_va": 278258444
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?SerializeInt@FArchive@@UAEXAAKK@Z",
+  "ordinal": null,
+  "iat_va": 278258448
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?SetStopper@FArchive@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278257900
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?StaticClass@UClass@@SAPAV1@XZ",
+  "ordinal": null,
+  "iat_va": 278258344
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?StaticClass@UPackage@@SAPAVUClass@@XZ",
+  "ordinal": null,
+  "iat_va": 278258400
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?StaticConstructObject@UObject@@SAPAV1@PAVUClass@@PAV1@VFName@@K1PAVFOutputDevice@@1@Z",
+  "ordinal": null,
+  "iat_va": 278257972
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?StaticLoadClass@UObject@@SAPAVUClass@@PAV2@PAV1@PBG2KPAVUPackageMap@@@Z",
+  "ordinal": null,
+  "iat_va": 278257976
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?StaticLoadObject@UObject@@SAPAV1@PAVUClass@@PAV1@PBG2KPAVUPackageMap@@@Z",
+  "ordinal": null,
+  "iat_va": 278258360
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?StaticShutdownAfterError@UObject@@SAXXZ",
+  "ordinal": null,
+  "iat_va": 278258036
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?TotalSize@FArchive@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278258428
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appAtof@@YAMPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258208
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appAtoi@@YAHPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258416
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appBaseDir@@YAPBGXZ",
+  "ordinal": null,
+  "iat_va": 278258548
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appClipboardCopy@@YAXPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258368
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appCmdLine@@YAPBGXZ",
+  "ordinal": null,
+  "iat_va": 278258084
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appExit@@YAXXZ",
+  "ordinal": null,
+  "iat_va": 278258172
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appFailAssert@@YAXPBD0H@Z",
+  "ordinal": null,
+  "iat_va": 278258476
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appFromAnsi@@YAPBGPBDPAG@Z",
+  "ordinal": null,
+  "iat_va": 278258488
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appGetAppInstanceHandle@@YAPAXXZ",
+  "ordinal": null,
+  "iat_va": 278258516
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appGetSystemErrorMessage@@YAPBGH@Z",
+  "ordinal": null,
+  "iat_va": 278258032
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appGetVarArgs@@YAHPAGHAAPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258004
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appInit@@YAXPBG0PAVFMalloc@@PAVFOutputDevice@@PAVFOutputDeviceError@@PAVFFeedbackContext@@PAVFFileManager@@P6APAVFConfigCache@@XZH@Z",
+  "ordinal": null,
+  "iat_va": 278258148
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appItoa@@YAPAGH@Z",
+  "ordinal": null,
+  "iat_va": 278258408
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appLoadFileToString@@YAHAAVFString@@PBGPAVFFileManager@@@Z",
+  "ordinal": null,
+  "iat_va": 278258288
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appMsgf@@YA?BHHPBGZZ",
+  "ordinal": null,
+  "iat_va": 278258424
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appPackage@@YAPBGXZ",
+  "ordinal": null,
+  "iat_va": 278258092
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appPreExit@@YAXXZ",
+  "ordinal": null,
+  "iat_va": 278258168
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appRand@@YAHXZ",
+  "ordinal": null,
+  "iat_va": 278258280
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appRandInit@@YAXH@Z",
+  "ordinal": null,
+  "iat_va": 278258312
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appRequestExit@@YAXH@Z",
+  "ordinal": null,
+  "iat_va": 278258060
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appSaveStringToFile@@YAHABVFString@@PBGPAVFFileManager@@K@Z",
+  "ordinal": null,
+  "iat_va": 278258284
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appSleep@@YAXM@Z",
+  "ordinal": null,
+  "iat_va": 278258296
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appSprintf@@YAHPAGPBGZZ",
+  "ordinal": null,
+  "iat_va": 278258112
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appSqrt@@YANN@Z",
+  "ordinal": null,
+  "iat_va": 278258336
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStaticString1024@@YAPAGXZ",
+  "ordinal": null,
+  "iat_va": 278258212
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStrcat@@YAPAGPAGPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258096
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStrchr@@YAPAGPBGH@Z",
+  "ordinal": null,
+  "iat_va": 278257920
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStrcmp@@YAHPBG0@Z",
+  "ordinal": null,
+  "iat_va": 278258188
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStrcpy@@YAPAGPAGPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258492
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStrfind@@YAPBGPBG0@Z",
+  "ordinal": null,
+  "iat_va": 278258144
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStricmp@@YAHPBG0@Z",
+  "ordinal": null,
+  "iat_va": 278258480
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStrlen@@YAHPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258484
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStrncat@@YAPAGPAGPBGH@Z",
+  "ordinal": null,
+  "iat_va": 278258048
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStrncpy@@YAPAGPAGPBGH@Z",
+  "ordinal": null,
+  "iat_va": 278258044
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appStrstr@@YAPAGPBG0@Z",
+  "ordinal": null,
+  "iat_va": 278258192
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appSystemTime@@YAXAAH0000000@Z",
+  "ordinal": null,
+  "iat_va": 278258248
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appTimestamp@@YAPBGXZ",
+  "ordinal": null,
+  "iat_va": 278258120
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appUnwindf@@YAXPBGZZ",
+  "ordinal": null,
+  "iat_va": 278258468
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?appUserDir@@YAPBGXZ",
+  "ordinal": null,
+  "iat_va": 278258080
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?winGetSizeANSI@@YAHPBG@Z",
+  "ordinal": null,
+  "iat_va": 278258544
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?winGetSizeUNICODE@@YAHPBD@Z",
+  "ordinal": null,
+  "iat_va": 278258220
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?winToANSI@@YAPADPADPBGH@Z",
+  "ordinal": null,
+  "iat_va": 278258540
+ },
+ {
+  "dll": "Core.dll",
+  "name": "?winToUNICODE@@YAPAGPAGPBDH@Z",
+  "ordinal": null,
+  "iat_va": 278258224
+ },
+ {
+  "dll": "Core.dll",
+  "name": "GIsSSE",
+  "ordinal": null,
+  "iat_va": 278257940
+ },
+ {
+  "dll": "d3d8.dll",
+  "name": "Direct3DCreate8",
+  "ordinal": null,
+  "iat_va": 278260368
+ },
+ {
+  "dll": "DDRAW.dll",
+  "name": "DirectDrawCreate",
+  "ordinal": null,
+  "iat_va": 278258768
+ },
+ {
+  "dll": "Engine.dll",
+  "name": "?Clear@FStats@@QAEXXZ",
+  "ordinal": null,
+  "iat_va": 278258832
+ },
+ {
+  "dll": "Engine.dll",
+  "name": "?GEngineStats@@3VFEngineStats@@A",
+  "ordinal": null,
+  "iat_va": 278258844
+ },
+ {
+  "dll": "Engine.dll",
+  "name": "?GStats@@3VFStats@@A",
+  "ordinal": null,
+  "iat_va": 278258836
+ },
+ {
+  "dll": "Engine.dll",
+  "name": "?GetLevel@AActor@@QBEPAVULevel@@XZ",
+  "ordinal": null,
+  "iat_va": 278258816
+ },
+ {
+  "dll": "Engine.dll",
+  "name": "?StaticClass@AActor@@SAPAVUClass@@XZ",
+  "ordinal": null,
+  "iat_va": 278258828
+ },
+ {
+  "dll": "Engine.dll",
+  "name": "?StaticClass@UEngine@@SAPAVUClass@@XZ",
+  "ordinal": null,
+  "iat_va": 278258840
+ },
+ {
+  "dll": "Engine.dll",
+  "name": "?StaticClass@UGameEngine@@SAPAVUClass@@XZ",
+  "ordinal": null,
+  "iat_va": 278258820
+ },
+ {
+  "dll": "Engine.dll",
+  "name": "?StaticClass@URenderDevice@@SAPAVUClass@@XZ",
+  "ordinal": null,
+  "iat_va": 278258848
+ },
+ {
+  "dll": "Engine.dll",
+  "name": "?UpdateString@FStats@@QAEXAAVFString@@H@Z",
+  "ordinal": null,
+  "iat_va": 278258824
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "CloseHandle",
+  "ordinal": null,
+  "iat_va": 278258920
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "CopyFileA",
+  "ordinal": null,
+  "iat_va": 278259008
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "CopyFileW",
+  "ordinal": null,
+  "iat_va": 278259012
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "CreateDirectoryA",
+  "ordinal": null,
+  "iat_va": 278259016
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "CreateDirectoryW",
+  "ordinal": null,
+  "iat_va": 278259020
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "CreateFileA",
+  "ordinal": null,
+  "iat_va": 278258944
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "CreateFileW",
+  "ordinal": null,
+  "iat_va": 278258948
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "CreateMutexA",
+  "ordinal": null,
+  "iat_va": 278259088
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "CreateMutexW",
+  "ordinal": null,
+  "iat_va": 278259092
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "DeleteFileA",
+  "ordinal": null,
+  "iat_va": 278258968
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "DeleteFileW",
+  "ordinal": null,
+  "iat_va": 278258972
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "FindClose",
+  "ordinal": null,
+  "iat_va": 278259056
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "FindFirstFileA",
+  "ordinal": null,
+  "iat_va": 278259064
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "FindFirstFileW",
+  "ordinal": null,
+  "iat_va": 278259072
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "FindNextFileA",
+  "ordinal": null,
+  "iat_va": 278259060
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "FindNextFileW",
+  "ordinal": null,
+  "iat_va": 278259068
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetCommandLineW",
+  "ordinal": null,
+  "iat_va": 278259096
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetCurrentDirectoryA",
+  "ordinal": null,
+  "iat_va": 278258996
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetCurrentDirectoryW",
+  "ordinal": null,
+  "iat_va": 278259000
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetCurrentThread",
+  "ordinal": null,
+  "iat_va": 278259028
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetCurrentThreadId",
+  "ordinal": null,
+  "iat_va": 278259032
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetDiskFreeSpaceExA",
+  "ordinal": null,
+  "iat_va": 278259080
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetDiskFreeSpaceExW",
+  "ordinal": null,
+  "iat_va": 278259076
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetFileAttributesExW",
+  "ordinal": null,
+  "iat_va": 278258984
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetFileSize",
+  "ordinal": null,
+  "iat_va": 278258940
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetLastError",
+  "ordinal": null,
+  "iat_va": 278258928
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetModuleFileNameA",
+  "ordinal": null,
+  "iat_va": 278258908
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetModuleFileNameW",
+  "ordinal": null,
+  "iat_va": 278258980
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetModuleHandleA",
+  "ordinal": null,
+  "iat_va": 278259100
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetStartupInfoA",
+  "ordinal": null,
+  "iat_va": 278259044
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetSystemDirectoryA",
+  "ordinal": null,
+  "iat_va": 278258916
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetSystemDirectoryW",
+  "ordinal": null,
+  "iat_va": 278258904
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetSystemInfo",
+  "ordinal": null,
+  "iat_va": 278258924
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetWindowsDirectoryA",
+  "ordinal": null,
+  "iat_va": 278258912
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GetWindowsDirectoryW",
+  "ordinal": null,
+  "iat_va": 278258900
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "GlobalMemoryStatus",
+  "ordinal": null,
+  "iat_va": 278259024
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "MoveFileA",
+  "ordinal": null,
+  "iat_va": 278258976
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "MoveFileW",
+  "ordinal": null,
+  "iat_va": 278259104
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "ReadFile",
+  "ordinal": null,
+  "iat_va": 278259004
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "RemoveDirectoryA",
+  "ordinal": null,
+  "iat_va": 278259048
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "RemoveDirectoryW",
+  "ordinal": null,
+  "iat_va": 278259052
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "SetCurrentDirectoryA",
+  "ordinal": null,
+  "iat_va": 278258988
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "SetCurrentDirectoryW",
+  "ordinal": null,
+  "iat_va": 278258992
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "SetFileAttributesA",
+  "ordinal": null,
+  "iat_va": 278258956
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "SetFileAttributesW",
+  "ordinal": null,
+  "iat_va": 278258960
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "SetFilePointer",
+  "ordinal": null,
+  "iat_va": 278258952
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "SetThreadPriority",
+  "ordinal": null,
+  "iat_va": 278259040
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "Sleep",
+  "ordinal": null,
+  "iat_va": 278259036
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "VirtualAlloc",
+  "ordinal": null,
+  "iat_va": 278258932
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "VirtualFree",
+  "ordinal": null,
+  "iat_va": 278258936
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "WideCharToMultiByte",
+  "ordinal": null,
+  "iat_va": 278259084
+ },
+ {
+  "dll": "KERNEL32.dll",
+  "name": "WriteFile",
+  "ordinal": null,
+  "iat_va": 278258964
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "??1type_info@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278259256
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "?terminate@@YAXXZ",
+  "ordinal": null,
+  "iat_va": 278259192
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_CxxThrowException",
+  "ordinal": null,
+  "iat_va": 278259272
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_XcptFilter",
+  "ordinal": null,
+  "iat_va": 278259236
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "__CxxFrameHandler",
+  "ordinal": null,
+  "iat_va": 278259276
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "__dllonexit",
+  "ordinal": null,
+  "iat_va": 278259252
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "__getmainargs",
+  "ordinal": null,
+  "iat_va": 278259216
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "__p__commode",
+  "ordinal": null,
+  "iat_va": 278259200
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "__p__fmode",
+  "ordinal": null,
+  "iat_va": 278259196
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "__set_app_type",
+  "ordinal": null,
+  "iat_va": 278259280
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "__setusermatherr",
+  "ordinal": null,
+  "iat_va": 278259208
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_acmdln",
+  "ordinal": null,
+  "iat_va": 278259224
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_adjust_fdiv",
+  "ordinal": null,
+  "iat_va": 278259204
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_amsg_exit",
+  "ordinal": null,
+  "iat_va": 278259220
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_c_exit",
+  "ordinal": null,
+  "iat_va": 278259244
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_cexit",
+  "ordinal": null,
+  "iat_va": 278259232
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_controlfp",
+  "ordinal": null,
+  "iat_va": 278259284
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_except_handler3",
+  "ordinal": null,
+  "iat_va": 278259288
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_exit",
+  "ordinal": null,
+  "iat_va": 278259240
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_initterm",
+  "ordinal": null,
+  "iat_va": 278259212
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_onexit",
+  "ordinal": null,
+  "iat_va": 278259248
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "_purecall",
+  "ordinal": null,
+  "iat_va": 278259268
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "calloc",
+  "ordinal": null,
+  "iat_va": 278259264
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "exit",
+  "ordinal": null,
+  "iat_va": 278259228
+ },
+ {
+  "dll": "MSVCR70.dll",
+  "name": "free",
+  "ordinal": null,
+  "iat_va": 278259260
+ },
+ {
+  "dll": "SHELL32.dll",
+  "name": "ShellExecuteA",
+  "ordinal": null,
+  "iat_va": 278259356
+ },
+ {
+  "dll": "SHELL32.dll",
+  "name": "ShellExecuteW",
+  "ordinal": null,
+  "iat_va": 278259360
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "CreateDialogParamA",
+  "ordinal": null,
+  "iat_va": 278259480
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "CreateDialogParamW",
+  "ordinal": null,
+  "iat_va": 278259476
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "DestroyWindow",
+  "ordinal": null,
+  "iat_va": 278259472
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "DispatchMessageA",
+  "ordinal": null,
+  "iat_va": 278259424
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "DispatchMessageW",
+  "ordinal": null,
+  "iat_va": 278259452
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "GetDlgItem",
+  "ordinal": null,
+  "iat_va": 278259484
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "GetForegroundWindow",
+  "ordinal": null,
+  "iat_va": 278259428
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "GetSystemMetrics",
+  "ordinal": null,
+  "iat_va": 278259488
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "GetWindowThreadProcessId",
+  "ordinal": null,
+  "iat_va": 278259432
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "LoadIconA",
+  "ordinal": null,
+  "iat_va": 278259464
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "LoadIconW",
+  "ordinal": null,
+  "iat_va": 278259460
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "MessageBoxW",
+  "ordinal": null,
+  "iat_va": 278259456
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "PeekMessageA",
+  "ordinal": null,
+  "iat_va": 278259420
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "PeekMessageW",
+  "ordinal": null,
+  "iat_va": 278259444
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "RemovePropA",
+  "ordinal": null,
+  "iat_va": 278259416
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "RemovePropW",
+  "ordinal": null,
+  "iat_va": 278259412
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "SendMessageA",
+  "ordinal": null,
+  "iat_va": 278259500
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "SendMessageW",
+  "ordinal": null,
+  "iat_va": 278259496
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "SetFocus",
+  "ordinal": null,
+  "iat_va": 278259436
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "SetForegroundWindow",
+  "ordinal": null,
+  "iat_va": 278259468
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "SetPropA",
+  "ordinal": null,
+  "iat_va": 278259408
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "SetPropW",
+  "ordinal": null,
+  "iat_va": 278259508
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "SetWindowPos",
+  "ordinal": null,
+  "iat_va": 278259492
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "ShowWindow",
+  "ordinal": null,
+  "iat_va": 278259440
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "TranslateMessage",
+  "ordinal": null,
+  "iat_va": 278259448
+ },
+ {
+  "dll": "USER32.dll",
+  "name": "UpdateWindow",
+  "ordinal": null,
+  "iat_va": 278259504
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0FDelegate@@QAE@PAVFCommandTarget@@P81@AEXXZ@Z",
+  "ordinal": null,
+  "iat_va": 278259584
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0FWindowsBitmap@@QAE@H@Z",
+  "ordinal": null,
+  "iat_va": 278259940
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0WButton@@QAE@PAVWWindow@@HUFDelegate@@P6GJPAUHWND__@@IIJ@Z@Z",
+  "ordinal": null,
+  "iat_va": 278259588
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0WConfigProperties@@QAE@VFName@@PBG@Z",
+  "ordinal": null,
+  "iat_va": 278260064
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0WCoolButton@@QAE@PAVWWindow@@HUFDelegate@@K@Z",
+  "ordinal": null,
+  "iat_va": 278259952
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0WCrashBoxDialog@@QAE@PBG0@Z",
+  "ordinal": null,
+  "iat_va": 278259632
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0WLabel@@QAE@PAVWWindow@@HP6GJPAUHWND__@@IIJ@Z@Z",
+  "ordinal": null,
+  "iat_va": 278259660
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0WLog@@QAE@PBGAAPAVFArchive@@VFName@@PAVWWindow@@@Z",
+  "ordinal": null,
+  "iat_va": 278260140
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0WObjectProperties@@QAE@VFName@@KPBGPAVWWindow@@H@Z",
+  "ordinal": null,
+  "iat_va": 278259728
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0WWizardDialog@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278259656
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??0WWizardPage@@QAE@PBGHPAVWWizardDialog@@@Z",
+  "ordinal": null,
+  "iat_va": 278259580
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1FWindowsBitmap@@QAE@XZ",
+  "ordinal": null,
+  "iat_va": 278260156
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1WButton@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278259596
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1WConfigProperties@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278260072
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1WCoolButton@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278259948
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1WCrashBoxDialog@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278259640
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1WLabel@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278259668
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1WLog@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278260148
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1WObjectProperties@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278260068
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1WWizardDialog@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278259672
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??1WWizardPage@@UAE@XZ",
+  "ordinal": null,
+  "iat_va": 278259592
+ },
+ {
+  "dll": "Window.dll",
+  "name": "??BWWindow@@QBEPAUHWND__@@XZ",
+  "ordinal": null,
+  "iat_va": 278259652
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?Advance@WWizardDialog@@UAEXPAVWWizardPage@@@Z",
+  "ordinal": null,
+  "iat_va": 278259916
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?BeginSplitterDrag@WProperties@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259980
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?CallDefaultProc@WDialog@@UAEHIIJ@Z",
+  "ordinal": null,
+  "iat_va": 278259696
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?CallDefaultProc@WWindow@@UAEHIIJ@Z",
+  "ordinal": null,
+  "iat_va": 278260032
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?DoDestroy@WProperties@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278260040
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?DoDestroy@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259688
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?DoModal@WDialog@@UAEHPAUHINSTANCE__@@@Z",
+  "ordinal": null,
+  "iat_va": 278259908
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?EndDialog@WDialog@@QAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278259644
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?ExpandAll@WProperties@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259972
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?ForceRefresh@WProperties@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259984
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GLogWindow@@3PAVWLog@@A",
+  "ordinal": null,
+  "iat_va": 278259752
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetBackText@WWizardPage@@UAEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278259612
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetBitmapHandle@FWindowsBitmap@@QAEPAUHBITMAP__@@XZ",
+  "ordinal": null,
+  "iat_va": 278259720
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetCancelText@WWizardPage@@UAEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278259620
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetDividerWidth@WProperties@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278259996
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetFinishText@WWizardPage@@UAEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278259616
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetLength@WWindow@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278259712
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetNext@WWizardPage@@UAEPAV1@XZ",
+  "ordinal": null,
+  "iat_va": 278259760
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetPackageName@WConfigProperties@@UAEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278259964
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetPackageName@WLog@@UAEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278260132
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetPackageName@WObjectProperties@@UAEPBGXZ",
+  "ordinal": null,
+  "iat_va": 278260044
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetRoot@WConfigProperties@@UAEPAVFTreeItem@@XZ",
+  "ordinal": null,
+  "iat_va": 278259956
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetRoot@WObjectProperties@@UAEPAVFTreeItem@@XZ",
+  "ordinal": null,
+  "iat_va": 278260000
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetShow@WWizardPage@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278259624
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetText@WWindow@@UAE?AVFString@@XZ",
+  "ordinal": null,
+  "iat_va": 278259704
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetWindowClassName@WConfigProperties@@UAEXPAG@Z",
+  "ordinal": null,
+  "iat_va": 278259960
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetWindowClassName@WLog@@UAEXPAG@Z",
+  "ordinal": null,
+  "iat_va": 278260128
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?GetWindowClassName@WObjectProperties@@UAEXPAG@Z",
+  "ordinal": null,
+  "iat_va": 278260036
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?InitWindowing@@YAXXZ",
+  "ordinal": null,
+  "iat_va": 278260144
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?InterceptControlCommand@WWindow@@UAEHIIJ@Z",
+  "ordinal": null,
+  "iat_va": 278259700
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?LoadFile@FWindowsBitmap@@QAEHPBG@Z",
+  "ordinal": null,
+  "iat_va": 278259944
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?LocalizeText@WDialog@@UAEXPBG0@Z",
+  "ordinal": null,
+  "iat_va": 278259912
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?MaybeDestroy@WWindow@@QAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259664
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?MyDrawEdge@WWindow@@UAEXPAUHDC__@@PAUtagRECT@@H@Z",
+  "ordinal": null,
+  "iat_va": 278259904
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnActivate@WProperties@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278260024
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnActivate@WWindow@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278259764
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnBack@WWizardDialog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259924
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCancel@WWizardDialog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259936
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCancel@WWizardPage@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259628
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnChar@WWindow@@UAEXG@Z",
+  "ordinal": null,
+  "iat_va": 278259768
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnClose@WLog@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278260092
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnClose@WWindow@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278259600
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnClose@WWizardDialog@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278259896
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCommand@WLog@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278260104
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCommand@WWindow@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278259756
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCopy@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259780
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCopyData@WLog@@UAEXPAUHWND__@@PAUtagCOPYDATASTRUCT@@@Z",
+  "ordinal": null,
+  "iat_va": 278260116
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCopyData@WWindow@@UAEXPAUHWND__@@PAUtagCOPYDATASTRUCT@@@Z",
+  "ordinal": null,
+  "iat_va": 278259716
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCreate@WLog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278260096
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCreate@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259816
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCurrent@WWizardPage@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259608
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnCut@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259776
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnDestroy@WLog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278260088
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnDestroy@WProperties@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278260004
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnDestroy@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259604
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnDestroy@WWizardDialog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259900
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnDrawItem@WWindow@@UAEXPAUtagDRAWITEMSTRUCT@@@Z",
+  "ordinal": null,
+  "iat_va": 278259820
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnEnterIdle@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259828
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnEraseBkgnd@WWindow@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278259796
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnFinish@WWizardDialog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259932
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnFinishSplitterDrag@WProperties@@UAEXPAVWDragInterceptor@@H@Z",
+  "ordinal": null,
+  "iat_va": 278260012
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnFinishSplitterDrag@WWindow@@UAEXPAVWDragInterceptor@@H@Z",
+  "ordinal": null,
+  "iat_va": 278259888
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnHScroll@WWindow@@UAEXIJ@Z",
+  "ordinal": null,
+  "iat_va": 278259804
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnInitDialog@WDialog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259576
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnInitDialog@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278260016
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnInitDialog@WWizardDialog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259648
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnKeyDown@WWindow@@UAEXG@Z",
+  "ordinal": null,
+  "iat_va": 278259772
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnKeyUp@WWindow@@UAEXIJ@Z",
+  "ordinal": null,
+  "iat_va": 278259808
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnKillFocus@WWindow@@UAEXPAUHWND__@@@Z",
+  "ordinal": null,
+  "iat_va": 278259740
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnLeftButtonDoubleClick@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259864
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnLeftButtonDown@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259860
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnLeftButtonUp@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259880
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnMdiActivate@WWindow@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278259852
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnMeasureItem@WWindow@@UAEXPAUtagMEASUREITEMSTRUCT@@@Z",
+  "ordinal": null,
+  "iat_va": 278259824
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnMiddleButtonDoubleClick@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259868
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnMouseEnter@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259832
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnMouseHover@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259840
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnMouseLeave@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259836
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnMouseMove@WWindow@@UAEXKUFPoint@@@Z",
+  "ordinal": null,
+  "iat_va": 278259856
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnMove@WWindow@@UAEXHH@Z",
+  "ordinal": null,
+  "iat_va": 278260152
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnNext@WWizardDialog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259928
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnPaint@WProperties@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278260020
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnPaint@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259812
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnPaste@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259784
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnReleaseCapture@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259848
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnRightButtonDoubleClick@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259872
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnRightButtonDown@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259876
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnRightButtonUp@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259884
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnSetCursor@WProperties@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278260008
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnSetCursor@WWindow@@UAEHXZ",
+  "ordinal": null,
+  "iat_va": 278259892
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnSetFocus@WTerminal@@UAEXPAUHWND__@@@Z",
+  "ordinal": null,
+  "iat_va": 278260112
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnSetFocus@WWindow@@UAEXPAUHWND__@@@Z",
+  "ordinal": null,
+  "iat_va": 278259736
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnShowWindow@WLog@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278260100
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnShowWindow@WWindow@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278259788
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnSize@WProperties@@UAEXKHH@Z",
+  "ordinal": null,
+  "iat_va": 278260028
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnSize@WTerminal@@UAEXKHH@Z",
+  "ordinal": null,
+  "iat_va": 278260108
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnSize@WWindow@@UAEXKHH@Z",
+  "ordinal": null,
+  "iat_va": 278259744
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnSysCommand@WWindow@@UAEHH@Z",
+  "ordinal": null,
+  "iat_va": 278260060
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnTimer@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259844
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnUndo@WWindow@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259792
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnVScroll@WWindow@@UAEXIJ@Z",
+  "ordinal": null,
+  "iat_va": 278259800
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OnWindowPosChanging@WWindow@@UAEXPAH000@Z",
+  "ordinal": null,
+  "iat_va": 278259748
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OpenWindow@WLog@@QAEXHH@Z",
+  "ordinal": null,
+  "iat_va": 278260136
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?OpenWindow@WProperties@@QAEXPAUHWND__@@@Z",
+  "ordinal": null,
+  "iat_va": 278259724
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?Paste@WTerminal@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278260080
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?RefreshPage@WWizardDialog@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259920
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?ResizeList@WProperties@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259992
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?ScrollCaret@WEdit@@QAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259732
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?Serialize@WProperties@@UAEXAAVFArchive@@@Z",
+  "ordinal": null,
+  "iat_va": 278260052
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?Serialize@WWindow@@UAEXAAVFArchive@@@Z",
+  "ordinal": null,
+  "iat_va": 278259684
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?SetExec@WTerminal@@QAEXPAVFExec@@@Z",
+  "ordinal": null,
+  "iat_va": 278260076
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?SetItemFocus@WProperties@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278259988
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?SetNotifyHook@WWindow@@QAEXPAVFNotifyHook@@@Z",
+  "ordinal": null,
+  "iat_va": 278260056
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?SetText@WLog@@UAEXPBG@Z",
+  "ordinal": null,
+  "iat_va": 278260120
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?SetText@WWindow@@UAEXPBG@Z",
+  "ordinal": null,
+  "iat_va": 278259708
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?SetValue@WProperties@@UAEXPBG@Z",
+  "ordinal": null,
+  "iat_va": 278259976
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?Show@WDialog@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278259680
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?Show@WObjectProperties@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278260048
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?Show@WWindow@@UAEXH@Z",
+  "ordinal": null,
+  "iat_va": 278259968
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?TypeChar@WTerminal@@UAEXG@Z",
+  "ordinal": null,
+  "iat_va": 278260084
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?Unused@FCommandTarget@@UAEXXZ",
+  "ordinal": null,
+  "iat_va": 278259676
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?WndProc@WLog@@UAEJIIJ@Z",
+  "ordinal": null,
+  "iat_va": 278260124
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?WndProc@WWindow@@UAEJIIJ@Z",
+  "ordinal": null,
+  "iat_va": 278259692
+ },
+ {
+  "dll": "Window.dll",
+  "name": "?hInstanceWindow@@3PAUHINSTANCE__@@A",
+  "ordinal": null,
+  "iat_va": 278259636
+ }
+]

@@ -1,0 +1,23 @@
+{
+  "title": "Shrek 2 (PC, 2004)",
+  "engine": "Unreal Engine 2 (UE2), MSVC 7.00, linker 7.00",
+  "path": "System/game.exe",
+  "size": 274432,
+  "sha256": "4900aa131cf35d4951943f2d6ee831841745af8e5d657ffdcfd7fb012cbaa2ef",
+  "image_base": 277872640,
+  "entry_point_rva": 109259,
+  "entry_va": 277981899,
+  "subsystem": "Windows GUI",
+  "link_date": "2004-04-14 02:19:52 UTC",
+  "exports": [
+    { "name": "GPackage", "va": 278055544 }
+  ],
+  "notes": [
+    "game.exe is the application body (UE2 Launch.cpp plus the exe's own native classes).",
+    "The engine itself lives in Core.dll (0x10100000) and Engine.dll (0x10300000);",
+    "Shrek 2's native game classes are in KWGame.dll (0x10000000). Those stay real",
+    "machine code (hybrid recompilation); only game.exe is lifted.",
+    "The exe imports C++ methods by decorated name from the UE2 DLLs, so the lift",
+    "must bind against the shipping DLLs from the same install folder."
+  ]
+}

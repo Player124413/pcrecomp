@@ -1,0 +1,3 @@
+# The lift driver imports the toolkit's disassembler, which is Capstone-backed.
+# Pin the major version: the instruction API is stable, the metadata is not.
+capstone>=5,<6

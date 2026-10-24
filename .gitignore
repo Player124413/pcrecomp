@@ -46,3 +46,11 @@ desktop.ini
 # IDA-derived Win16 ordinal map. Built locally by tools/ne/idt_to_json.py from
 # an IDA install; it is IDA's data, not ours to redistribute.
 tools/ne/win16_imports.json
+
+# Shrek 2 project: the lift is generated from your own copy of the game and is
+# a derivative of it, so it is built locally (or in CI) and never committed.
+projects/shrek2/src/game/recomp/gen/
+projects/shrek2/build*/
+projects/shrek2/dist/
+shrek2.log
+shrek2_missing.txt

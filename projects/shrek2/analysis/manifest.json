@@ -1,0 +1,92 @@
+{
+ "source": {
+  "file": "game.exe",
+  "sha256": "4900aa131cf35d4951943f2d6ee831841745af8e5d657ffdcfd7fb012cbaa2ef",
+  "expected_sha256": "4900aa131cf35d4951943f2d6ee831841745af8e5d657ffdcfd7fb012cbaa2ef",
+  "size": 274432,
+  "image_base": "0x10900000",
+  "entry_va": "0x1091AACB",
+  "timestamp": "2004-04-14 02:19:52 UTC"
+ },
+ "lift": {
+  "functions": 1644,
+  "source_files": [
+   "recomp_0000.c",
+   "recomp_0001.c",
+   "recomp_0002.c",
+   "recomp_0003.c",
+   "recomp_0004.c"
+  ],
+  "c_bytes": 14477391,
+  "largest_functions": [
+   {
+    "va": "0x10909212",
+    "size": 5021
+   },
+   {
+    "va": "0x109092CD",
+    "size": 4834
+   },
+   {
+    "va": "0x10909330",
+    "size": 4735
+   },
+   {
+    "va": "0x10909458",
+    "size": 4439
+   },
+   {
+    "va": "0x10909513",
+    "size": 4252
+   },
+   {
+    "va": "0x10909657",
+    "size": 3928
+   },
+   {
+    "va": "0x10909675",
+    "size": 3898
+   },
+   {
+    "va": "0x109097AF",
+    "size": 3584
+   },
+   {
+    "va": "0x109097D0",
+    "size": 3551
+   },
+   {
+    "va": "0x1090990E",
+    "size": 3233
+   }
+  ],
+  "gates": "ok"
+ },
+ "coverage": {
+  "executable_bytes": 135168,
+  "covered_bytes": 87476,
+  "uncovered_bytes": 47692,
+  "uncovered_padding_bytes": 43692,
+  "uncovered_code_bytes": 4000,
+  "coverage_pct": 64.72
+ },
+ "imports": {
+  "total": 438,
+  "by_dll": {
+   "comdlg32.dll": 1,
+   "Core.dll": 175,
+   "d3d8.dll": 1,
+   "DDRAW.dll": 1,
+   "Engine.dll": 9,
+   "KERNEL32.dll": 52,
+   "MSVCR70.dll": 25,
+   "SHELL32.dll": 2,
+   "USER32.dll": 26,
+   "Window.dll": 146
+  }
+ },
+ "toolchain": {
+  "python": "3.11.2",
+  "pcrecomp_head": "e3c9e02"
+ }
+}

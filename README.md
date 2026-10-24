@@ -59,6 +59,7 @@ pcrecomp/
     compat/        Win32 -> SDL2 mapping (the original annotated import census;
                    win32hle is the implemented successor)
   templates/       Starter CMakeLists and .gitignore for a new project
+  projects/        Worked targets (shrek2: a hybrid UE2 lift, built by CI)
   docs/            Pipeline, philosophy, the hybrid boundary, publishing
 ```
 
@@ -615,6 +616,26 @@ pip install capstone pefile lief unicorn cryptography
 6. Build with CMake, fix, repeat
 7. Before going public, run `audit_repo.py` and read
    [docs/PUBLISHING.md](docs/PUBLISHING.md). Lifted output never goes in git.
+
+### A worked example, end to end
+
+[`projects/shrek2/`](projects/shrek2/) is a complete hybrid target, built the
+way this document says to build one: a driver with gates
+(`tools/build_lift.py`: verify -> analyse -> recover -> lift -> gate -> report),
+the analysis artifacts committed, the generated C kept out of git, a Windows x86
+host, and a CI workflow that re-derives the lift from the shipping binary and
+builds the executable with MSVC x86 on every run -- falling back to a stub
+catalog when the (copyrighted) binary is not reachable, so the host and the
+toolchain are still exercised instead of the pipeline going red.
+
+It is also the counter-example to "lift everything": the 2004 UE2 engine
+(`Core.dll`, `Engine.dll`, 6 MB of optimised C++) stays real machine code, and
+only the application body -- 1,644 functions, 14.5 MB of generated C -- is
+lifted. Read its [README](projects/shrek2/README.md) next to this section, and
+[`BRINGUP.md`](projects/shrek2/BRINGUP.md) for what running a fresh hybrid lift
+actually costs -- the seven checks in order, and the five failures this kind of
+lift has -- and [`ANDROID.md`](projects/shrek2/ANDROID.md) for what a non-Windows
+host (Android/ARM) actually requires: the lift is portable C, the engine is not.
 
 ### Where the docs are
 
